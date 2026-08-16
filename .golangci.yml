@@ -1,0 +1,96 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+  relative-path-mode: gomod
+  issues-exit-code: 1
+
+output:
+  formats:
+    text:
+      path: stdout
+      print-linter-name: true
+      colors: true
+  sort-order:
+    - linter
+    - file
+  show-stats: false
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: true
+
+linters:
+  default: none
+  enable:
+    # базовая корректность/типизация/мёртвый код
+    - govet
+    # - typecheck
+    - staticcheck
+    - unused
+    - ineffassign
+
+    # ошибки/обёртки/проверки
+    - errcheck
+    - errorlint
+
+    # практичные линтеры
+    - bodyclose
+    - nilerr
+    - nilnil
+    - copyloopvar
+    - unconvert
+    - unparam
+    - prealloc
+    - misspell
+    - nolintlint
+
+    # (опционально, но часто полезно)
+    - gosec
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    misspell:
+      locale: US
+    nolintlint:
+      allow-unused: false
+      require-explanation: true
+      require-specific: true
+
+  exclusions:
+    generated: strict
+    presets:
+      - std-error-handling
+      - common-false-positives
+    rules:
+      # gosec часто шумит в тестах — обычно так удобнее
+      - path: '_test\.go'
+        linters:
+          - gosec
+    paths:
+      - '.*\.pb\.go$'
+      - '.*\.pb\.gw\.go$'
+      - '.*_mock\.go$'
+      - '.*\.gen\.go$'
+      - 'wire_gen\.go$'
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  # settings:
+  #   goimports:
+      # Если хочешь правильную группировку "локальных" импортов — раскомментируй и укажи модуль:
+      # local-prefixes:
+      #   - github.com/yourorg/yourrepo
+  exclusions:
+    generated: strict
+    paths:
+      - '.*\.pb\.go$'
+      - '.*\.pb\.gw\.go$'
+      - '.*_mock\.go$'
