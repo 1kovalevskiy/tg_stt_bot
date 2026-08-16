@@ -1,4 +1,4 @@
-package app
+package logger
 
 import (
 	"bytes"
@@ -16,7 +16,12 @@ import (
 	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 )
 
-// fakeSender is a hand-written fake of the serviceChatSender interface.
+const (
+	serviceChatID int64 = -100777
+	testLogLevel        = "INFO"
+)
+
+// fakeSender is a hand-written fake of the messageSender interface.
 type fakeSender struct {
 	mu       sync.Mutex
 	messages []string
@@ -55,179 +60,55 @@ func (f *fakeSender) sentChatIDs() []int64 {
 	return append([]int64(nil), f.chatIDs...)
 }
 
-const serviceChatID int64 = -100777
+// fakeConfig is a hand-written fake of the config interfaces this package
+// consumes: the service chat id and the log level.
+type fakeConfig struct {
+	chatID int64
+	level  string
+}
+
+func (f fakeConfig) GetTelegramServiceChatID() int64 { return f.chatID }
+
+func (f fakeConfig) GetAppLogLevel() string { return f.level }
+
+func testConfig() fakeConfig {
+	return fakeConfig{chatID: serviceChatID, level: testLogLevel}
+}
 
 // newTestLogger builds a logger with the fan-out handler, returning the
 // stdout buffer, the sink's own error log buffer and the sink.
-func newTestLogger(t *testing.T, sender *fakeSender, queueSize int) (*slog.Logger, *bytes.Buffer, *bytes.Buffer, *serviceChatSink) {
+func newTestLogger(
+	t *testing.T, sender *fakeSender, queueSize int,
+) (*slog.Logger, *bytes.Buffer, *bytes.Buffer, *ServiceChatSink) {
 	t.Helper()
 
 	stdout := &bytes.Buffer{}
 	errOut := &bytes.Buffer{}
 
 	inner := slog.NewTextHandler(stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
-	sink := newServiceChatSink(sender, serviceChatID, queueSize, log.New(errOut, "", 0))
+	sink := newServiceChatSink(sender, testConfig(), queueSize, log.New(errOut, "", 0))
 
-	return slog.New(newFanOutHandler(inner, newServiceChatMirror(sink))), stdout, errOut, sink
+	return slog.New(NewServiceChatHandler(inner, sink)), stdout, errOut, sink
 }
 
-func TestServiceChatHandler_ErrorGoesToServiceChat(t *testing.T) {
+func TestNewServiceChatSink_DeliversToTheConfiguredChat(t *testing.T) {
 	sender := &fakeSender{}
-	logger, stdout, errOut, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
+	sink := NewServiceChatSink(sender, testConfig())
 
-	logger.Error("stt is down", "err", "connection refused")
+	if _, err := sink.Write([]byte("level=ERROR msg=boom\n")); err != nil {
+		t.Fatalf("Write() unexpected error: %v", err)
+	}
 
 	if err := sink.Close(); err != nil {
 		t.Fatalf("Close() unexpected error: %v", err)
 	}
 
-	sent := sender.sent()
-	if len(sent) != 1 {
-		t.Fatalf("sender got %d messages, want 1", len(sent))
-	}
-
-	if !strings.Contains(sent[0], "stt is down") || !strings.Contains(sent[0], `err="connection refused"`) {
-		t.Errorf("service chat message = %q, want the message and its attrs", sent[0])
-	}
-
-	if !strings.Contains(sent[0], "level="+slog.LevelError.String()) {
-		t.Errorf("service chat message = %q, want it to carry the level", sent[0])
-	}
-
-	// Telegram stamps every message itself, so the record timestamp is dropped.
-	if strings.Contains(sent[0], "time=") {
-		t.Errorf("service chat message = %q, want the timestamp dropped", sent[0])
+	if got := cap(sink.queue); got != models.ServiceChatQueueSize {
+		t.Errorf("queue capacity = %d, want models.ServiceChatQueueSize %d", got, models.ServiceChatQueueSize)
 	}
 
 	if ids := sender.sentChatIDs(); len(ids) != 1 || ids[0] != serviceChatID {
 		t.Errorf("sender got chat ids %v, want [%d]", ids, serviceChatID)
-	}
-
-	if !strings.Contains(stdout.String(), "stt is down") {
-		t.Errorf("stdout = %q, want the record as well", stdout.String())
-	}
-
-	if errOut.Len() != 0 {
-		t.Errorf("sink error log = %q, want it empty", errOut.String())
-	}
-}
-
-func TestServiceChatHandler_NonErrorStaysInStdout(t *testing.T) {
-	sender := &fakeSender{}
-	logger, stdout, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
-
-	logger.Info("bot started")
-	logger.Warn("slow transcription")
-	logger.Debug("not enabled at all")
-
-	if err := sink.Close(); err != nil {
-		t.Fatalf("Close() unexpected error: %v", err)
-	}
-
-	if sent := sender.sent(); len(sent) != 0 {
-		t.Errorf("sender got %v, want nothing below ERROR", sent)
-	}
-
-	out := stdout.String()
-	if !strings.Contains(out, "bot started") || !strings.Contains(out, "slow transcription") {
-		t.Errorf("stdout = %q, want the info and warn records", out)
-	}
-
-	if strings.Contains(out, "not enabled at all") {
-		t.Errorf("stdout = %q, want the debug record filtered out by the inner handler", out)
-	}
-}
-
-func TestServiceChatHandler_ErrorPassesHigherInnerLevel(t *testing.T) {
-	sender := &fakeSender{}
-	stdout := &bytes.Buffer{}
-	// The inner handler drops everything: ERROR must still reach the sink.
-	inner := slog.NewTextHandler(stdout, &slog.HandlerOptions{Level: slog.LevelError + 1})
-	sink := newServiceChatSink(sender, serviceChatID, models.ServiceChatQueueSize, log.New(io.Discard, "", 0))
-	logger := slog.New(newFanOutHandler(inner, newServiceChatMirror(sink)))
-
-	logger.Error("boom")
-
-	if err := sink.Close(); err != nil {
-		t.Fatalf("Close() unexpected error: %v", err)
-	}
-
-	if sent := sender.sent(); len(sent) != 1 {
-		t.Fatalf("sender got %d messages, want 1", len(sent))
-	}
-
-	if stdout.Len() != 0 {
-		t.Errorf("stdout = %q, want it empty", stdout.String())
-	}
-}
-
-func TestServiceChatHandler_WithAttrsAndGroupKeepAttributes(t *testing.T) {
-	sender := &fakeSender{}
-	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
-
-	logger.With("component", "chat").
-		WithGroup("audio").
-		With("file_id", "abc").
-		Error("transcription failed", "chat_id", -100123)
-
-	if err := sink.Close(); err != nil {
-		t.Fatalf("Close() unexpected error: %v", err)
-	}
-
-	sent := sender.sent()
-	if len(sent) != 1 {
-		t.Fatalf("sender got %d messages, want 1", len(sent))
-	}
-
-	for _, want := range []string{
-		"transcription failed",
-		"component=chat",
-		"audio.file_id=abc",
-		"audio.chat_id=-100123",
-	} {
-		if !strings.Contains(sent[0], want) {
-			t.Errorf("service chat message = %q, want it to contain %q", sent[0], want)
-		}
-	}
-}
-
-func TestServiceChatHandler_GroupAttrIsFlattened(t *testing.T) {
-	sender := &fakeSender{}
-	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
-
-	logger.Error("failed", slog.Group("stt", slog.String("status", "500"), slog.Int("attempt", 2)))
-
-	if err := sink.Close(); err != nil {
-		t.Fatalf("Close() unexpected error: %v", err)
-	}
-
-	sent := sender.sent()
-	if len(sent) != 1 {
-		t.Fatalf("sender got %d messages, want 1", len(sent))
-	}
-
-	if !strings.Contains(sent[0], "stt.status=500") || !strings.Contains(sent[0], "stt.attempt=2") {
-		t.Errorf("service chat message = %q, want the flattened group attrs", sent[0])
-	}
-}
-
-func TestServiceChatHandler_LongRecordTruncatedToOneMessage(t *testing.T) {
-	sender := &fakeSender{}
-	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
-
-	logger.Error(strings.Repeat("очень длинная ошибка ", 500))
-
-	if err := sink.Close(); err != nil {
-		t.Fatalf("Close() unexpected error: %v", err)
-	}
-
-	sent := sender.sent()
-	if len(sent) != 1 {
-		t.Fatalf("sender got %d messages, want 1", len(sent))
-	}
-
-	if chunks := models.SplitText(sent[0], models.TelegramMessageLimit); len(chunks) != 1 {
-		t.Errorf("service chat message is %d chunks long, want it to fit into one message", len(chunks))
 	}
 }
 
@@ -334,36 +215,8 @@ func TestServiceChatSink_CloseIsIdempotentAndDropsLaterRecords(t *testing.T) {
 	}
 }
 
-func TestParseLogLevel(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		value string
-		want  slog.Level
-	}{
-		{name: "debug", value: "DEBUG", want: slog.LevelDebug},
-		{name: "lowercase info", value: "info", want: slog.LevelInfo},
-		{name: "warn", value: "WARN", want: slog.LevelWarn},
-		{name: "warning", value: " warning ", want: slog.LevelWarn},
-		{name: "error", value: "ERROR", want: slog.LevelError},
-		{name: "unknown falls back to info", value: "verbose", want: slog.LevelInfo},
-		{name: "empty falls back to info", value: "", want: slog.LevelInfo},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := parseLogLevel(tt.value); got != tt.want {
-				t.Errorf("parseLogLevel(%q) = %v, want %v", tt.value, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestServiceChatSink_QueueSizeIsClampedToAtLeastOne(t *testing.T) {
-	sink := newServiceChatSink(&fakeSender{}, serviceChatID, 0, log.New(io.Discard, "", 0))
+	sink := newServiceChatSink(&fakeSender{}, testConfig(), 0, log.New(io.Discard, "", 0))
 
 	defer func() {
 		if err := sink.Close(); err != nil {
@@ -389,8 +242,8 @@ func TestServiceChatSink_CloseReportsDrainTimeout(t *testing.T) {
 
 	logger.Error("stuck record")
 
-	if err := sink.Close(); !errors.Is(err, ErrLogSinkDrainTimeout) {
-		t.Fatalf("Close() error = %v, want ErrLogSinkDrainTimeout", err)
+	if err := sink.Close(); !errors.Is(err, ErrSinkDrainTimeout) {
+		t.Fatalf("Close() error = %v, want ErrSinkDrainTimeout", err)
 	}
 }
 
@@ -423,7 +276,7 @@ func TestServiceChatSink_RateLimitCapsDeliveriesAndReportsTheRest(t *testing.T) 
 
 func TestServiceChatSink_WriteTruncatesToOneMessage(t *testing.T) {
 	sender := &fakeSender{}
-	sink := newServiceChatSink(sender, serviceChatID, models.ServiceChatQueueSize, log.New(io.Discard, "", 0))
+	sink := newServiceChatSink(sender, testConfig(), models.ServiceChatQueueSize, log.New(io.Discard, "", 0))
 
 	long := strings.Repeat("\U0001F600", models.TelegramMessageLimit)
 

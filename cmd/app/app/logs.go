@@ -2,10 +2,8 @@ package app
 
 import (
 	"log/slog"
-	"os"
-	"strings"
 
-	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
+	"github.com/1kovalevskiy/tg_stt_bot/internal/logger"
 )
 
 // initLogs installs the base JSON logger writing to stdout.
@@ -14,9 +12,7 @@ func (a *App) initLogs() error {
 		return ErrNilConfig
 	}
 
-	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: parseLogLevel(a.Config.GetAppLogLevel()),
-	})
+	handler := logger.NewBaseHandler(a.Config)
 
 	a.logHandler = handler
 	slog.SetDefault(slog.New(handler))
@@ -24,9 +20,9 @@ func (a *App) initLogs() error {
 	return nil
 }
 
-// initLogSink wraps the base logger with a fan-out handler that mirrors ERROR
-// records to the Telegram service chat. It runs after the providers because
-// it needs the Telegram provider to deliver the records.
+// initLogSink starts the service chat sink and wraps the base logger with the
+// handler mirroring ERROR records into it. It runs after the providers because
+// the sink delivers the records through the Telegram provider.
 func (a *App) initLogSink() error {
 	if a.Config == nil {
 		return ErrNilConfig
@@ -40,30 +36,10 @@ func (a *App) initLogSink() error {
 		return ErrNilTelegramProvider
 	}
 
-	sink := newServiceChatSink(
-		a.Providers.Telegram,
-		a.Config.GetTelegramServiceChatID(),
-		models.ServiceChatQueueSize,
-		nil,
-	)
+	sink := logger.NewServiceChatSink(a.Providers.Telegram, a.Config)
 
 	a.addCloser("service-chat-log-sink", sink.Close)
-	slog.SetDefault(slog.New(newFanOutHandler(a.logHandler, newServiceChatMirror(sink))))
+	slog.SetDefault(slog.New(logger.NewServiceChatHandler(a.logHandler, sink)))
 
 	return nil
-}
-
-// parseLogLevel maps the configured level name to a slog level,
-// falling back to INFO for anything unknown.
-func parseLogLevel(value string) slog.Level {
-	switch strings.ToUpper(strings.TrimSpace(value)) {
-	case "DEBUG":
-		return slog.LevelDebug
-	case "WARN", "WARNING":
-		return slog.LevelWarn
-	case "ERROR":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
 }

@@ -5,13 +5,19 @@
 ## 1. Структура
 
 - `cmd/app/main.go` — точка входа: флаг `-config`, `InitApp`, `RunApp`.
-- `cmd/app/app/` — композиция приложения: `app.go` (структура `App`, `InitApp`, `RunApp`, closers),
-  `config.go`, `logs.go`, `log_sink.go`, `providers.go`, `controllers.go`, `bot.go`, `errors.go`.
+- `cmd/app/app/` — **только вайринг**: `app.go` (структура `App`, `InitApp`, `RunApp`, closers),
+  `config.go`, `logs.go`, `providers.go`, `controllers.go`, `bot.go`, `errors.go`.
 - `Dockerfile` копирует в образ только `cmd/` и `internal/`: новая директория с кодом верхнего уровня
   пройдёт lint и тесты, но сломает сборку образа — её нужно добавить в `COPY` руками.
 - `internal/configs/` — конфиг на cleanenv (файл + env), валидация, getter-API.
-- `internal/models/` — чистые модели, функции и **все** константы проекта, без инфраструктурных
-  зависимостей.
+- `internal/models/` — чистые модели, функции и **все** константы проекта (`consts.go`), без
+  инфраструктурных зависимостей.
+- `internal/transport/` — `errors.go` слоя транспорта (пакет `transport`), общий для его подпакетов.
+- `internal/transport/telegram/` — транспорт long polling: создание клиента (`NewBotClient`),
+  диспетчер апдейтов (`Dispatcher`), матчеры, проверка допуска чата, маппинг update →
+  `models.IncomingAudio`, логирование ошибок контроллеров.
+- `internal/logger/` — инфраструктура логирования: базовый JSON-хендлер, fan-out поверх него и
+  sink доставки ERROR-записей в сервисный чат (очередь, горутина, rate limit, дренаж).
 - `internal/providers/` — `errors.go` слоя провайдеров (пакет `providers`), общий для его подпакетов.
 - `internal/providers/stt/` — HTTP-клиент parakeet.
 - `internal/providers/telegram/` — Bot API: скачивание файлов, отправка сообщений и reply.
@@ -19,7 +25,17 @@
 - `internal/controllers/chat-controller/` — сценарий расшифровки аудио.
 - `internal/controllers/admin-controller/` — команды в личке админа.
 
-`internal/app` в этом проекте не создаётся: это место под кодген gRPC-ручек, у бота long polling и ручек нет.
+`internal/app` в этом проекте не создаётся: это место под кодген gRPC-ручек, у бота long polling и
+ручек нет; сам транспорт живёт в `internal/transport/`.
+
+### 1.1 В вайринге — только вайринг
+
+Правило владельца: в `cmd/app/app/` не должно быть никакой логики. Файлам этой директории разрешено
+только читать путь до конфига, создавать конкретные типы, прокидывать их в чужие конструкторы
+интерфейсами, регистрировать то, что отдаёт транспорт, и запускать/останавливать это. Бизнес-правил,
+матчеров, форматирования записей, очередей и горутин здесь быть не должно — всё это уезжает в слой
+(`internal/transport/**`, `internal/logger/`, контроллеры, провайдеры), а вайринг зовёт его
+конструктор.
 
 ## 2. Правила слоёв
 
@@ -28,13 +44,14 @@
 - Структуры слоёв и их конструкторы принимают **только интерфейсы** и значения, никогда — конкретные типы
   других слоёв.
 - Интерфейсы объявляются на стороне потребителя (в пакете, который их вызывает), а не рядом с реализацией.
-- Конкретные структуры знает только вайринг: `cmd/app/app/providers.go` и `cmd/app/app/controllers.go`.
-- Провайдеры и контроллеры не держат мутабельного состояния и безопасны для конкурентного использования:
-  апдейты обрабатываются несколькими воркерами.
-- Конфиг тоже приходит интерфейсом (`configProvider` в пакете-потребителе) — везде, где слою нужны
-  его значения: сейчас это оба провайдера и `admin-controller` (`chat-controller` от конфига не
-  зависит: лимит файла и таймаут уведомления — константы протокола из `internal/models`, а не
-  настройки). Значения
+- Конкретные структуры знает только вайринг: `cmd/app/app/{providers,controllers,bot,logs}.go`.
+- Провайдеры, контроллеры и диспетчер транспорта не держат мутабельного состояния и безопасны для
+  конкурентного использования: апдейты обрабатываются несколькими воркерами. Единственное
+  изменяемое состояние — внутри sink'а логов, и оно принадлежит его горутине (или закрыто мьютексом).
+- Конфиг тоже приходит интерфейсом (`configProvider`, `dispatcherConfig`, `sinkConfig`, … в
+  пакете-потребителе) — везде, где слою нужны его значения: сейчас это оба провайдера,
+  `admin-controller`, транспорт и логгер (`chat-controller` от конфига не зависит: лимит файла и
+  таймаут уведомления — константы протокола из `internal/models`, а не настройки). Значения
   читаются геттерами по месту использования, а не копируются в поля конструктором: в конструктор
   передаётся конфиг целиком, а не набор строк и duration'ов.
 
@@ -42,13 +59,15 @@
 
 - У слоя ровно один `errors.go`, и **все** его сентинелы объявляются там — не по подпакетам:
   - `internal/controllers/errors.go` (пакет `controllers`) — ошибки chat- и admin-контроллера;
-  - `internal/providers/errors.go` (пакет `providers`) — ошибки stt- и telegram-провайдера.
+  - `internal/providers/errors.go` (пакет `providers`) — ошибки stt- и telegram-провайдера;
+  - `internal/transport/errors.go` (пакет `transport`) — ошибки транспортов.
 - Однопакетные слои держат свой `errors.go` рядом с кодом: `internal/configs/errors.go`,
-  `internal/models/errors.go`, `cmd/app/app/errors.go`.
-- Внутри подпакета слоя (`chat-controller`, `admin-controller`, `stt`, `telegram`) своего `errors.go`
-  быть не должно: подпакет импортирует общий пакет слоя и оборачивает в его сентинелы
-  (`controllers.ErrSendReply`, `providers.ErrSTTUnexpectedStatus`).
-- Имена сентинелов уникальны в пределах файла слоя. У провайдеров они префиксованы внешним сервисом
+  `internal/logger/errors.go`, `internal/models/errors.go`, `cmd/app/app/errors.go`.
+- Внутри подпакета слоя (`chat-controller`, `admin-controller`, `stt`, `telegram` — и провайдера, и
+  транспорта) своего `errors.go` быть не должно: подпакет импортирует общий пакет слоя и оборачивает
+  в его сентинелы (`controllers.ErrSendReply`, `providers.ErrSTTUnexpectedStatus`,
+  `transport.ErrTelegramCreateBotClient`).
+- Имена сентинелов уникальны в пределах файла слоя. У провайдеров и транспорта они префиксованы внешним сервисом
   (`ErrSTTBuildRequest` / `ErrTelegramBuildRequest`, `ErrSTTUnexpectedStatus` /
   `ErrTelegramUnexpectedStatus`): одинаковые режимы отказа у stt и telegram — разные ошибки и
   сливаться в одну не должны.
@@ -61,31 +80,42 @@
 
 ### 2.3 Метод на файл
 
-- `controller.go` / `provider.go` — структура слоя, её интерфейсы-зависимости и конструктор.
+- `controller.go` / `provider.go` / `dispatcher.go` / `sink.go` — структура слоя, её
+  интерфейсы-зависимости и конструктор.
 - Каждый публичный метод — в отдельном файле (`audio_transcribe.go`, `health_check.go`,
   `file_download.go`, `message_send.go`, `reply_send.go`, `voice_handle.go`, `video_note_handle.go`,
-  `command_handle.go`).
+  `command_handle.go`, `handlers_register.go`, `record_write.go`, `sink_close.go`).
 - Приватные помощники выносятся в свои файлы, если так читается лучше (`request_do.go`,
-  `error_redact.go`, `read_closer_cancel.go`, `audio_transcribe_and_reply.go`, `log_sink.go`).
+  `error_redact.go`, `read_closer_cancel.go`, `audio_transcribe_and_reply.go`, `message_resolve.go`,
+  `update_error_log.go`, `queue_run.go`, `level_parse.go`). Дробить до одного помощника на файл не
+  нужно: связная пара «матчер + хендлер» (`voice_handle.go`) и вся машинерия очереди
+  (`queue_run.go`) живут вместе.
 
 ### 2.3.1 Имена методов и файлов: `действиеОбъект` и `объект_действие.go`
 
-Правило владельца, обязательное для `internal/controllers/**` и `internal/providers/**`:
+Правило владельца, обязательное для `internal/controllers/**`, `internal/providers/**`,
+`internal/transport/**` и `internal/logger/`:
 
 - **Методы** (публичные и приватные) называются `действиеОбъект` — сначала глагол, потом
   существительное: `DownloadFile`, `SendMessage`, `SendReply`, `HandleVoice`, `HandleVideoNote`,
   `HandleCommand`, `TranscribeAudio`, `CheckHealth`, `sendStatus`, `sendChats`, `sendText`,
   `checkHealth`, `transcribeAudio`, `sendReply`, `sendFailureReply`, `wrapRedactedError`,
-  `buildStatusError`. Голого существительного (`Health`, `status`, `chats`) и голого глагола без
-  объекта (`send`, `reply`) быть не должно.
+  `buildStatusError`, `RegisterHandlers`, `matchVoice`, `resolveAllowedMessage`, `logUpdateError`,
+  `runQueue`, `deliverRecord`, `sendRecord`, `rotateWindow`, `parseLogLevel`. Голого
+  существительного (`Health`, `status`, `chats`, `allowedMessage`) и голого глагола без
+  объекта (`send`, `reply`, `run`) быть не должно.
 - **Файлы** называются наоборот — `объект_действие.go`, зеркально методу, который в них лежит:
   `DownloadFile` → `file_download.go`, `SendReply` → `reply_send.go`, `TranscribeAudio` →
-  `audio_transcribe.go`, `CheckHealth` → `health_check.go`, `HandleCommand` → `command_handle.go`.
-  Тот же вид у файлов приватных помощников (`request_do.go`, `error_redact.go`,
-  `read_closer_cancel.go`) и у их `_test.go`-двойников.
-- `controller.go`, `provider.go`, `errors.go` имена сохраняют: это файлы слоя, а не файлы метода.
-- Исключение — методы интерфейсов stdlib: `Read`/`Close` у `cancelReadCloser` реализуют
-  `io.ReadCloser` и переименованию не подлежат.
+  `audio_transcribe.go`, `CheckHealth` → `health_check.go`, `HandleCommand` → `command_handle.go`,
+  `RegisterHandlers` → `handlers_register.go`, `runQueue` → `queue_run.go`, `parseLogLevel` →
+  `level_parse.go`. Тот же вид у файлов приватных помощников (`request_do.go`, `error_redact.go`,
+  `read_closer_cancel.go`, `message_resolve.go`) и у их `_test.go`-двойников.
+- `controller.go`, `provider.go`, `dispatcher.go`, `sink.go`, `handler.go`, `errors.go` имена
+  сохраняют: это файлы слоя, а не файлы метода. Конструктор публичного типа лежит рядом с ним, а
+  публичные конструкторы-обёртки — в файле по объекту, который они собирают (`handler_base.go`,
+  `handler_service_chat.go`, `bot_client.go`).
+- Исключение — методы интерфейсов stdlib: `Read`/`Close` у `cancelReadCloser` и `Write`/`Close` у
+  `ServiceChatSink` реализуют `io.ReadCloser`/`io.WriteCloser` и переименованию не подлежат.
 - Вайринг (`cmd/app/app/`) под это правило не попадает: там файлы называются по этапу инициализации
   (`bot.go`, `logs.go`, `providers.go`, `controllers.go`).
 
@@ -116,17 +146,15 @@
 ни в контроллерах, ни в провайдерах, ни в вайринге, ни в конфигах. Литералы по месту тоже
 не годятся: значение получает имя и уезжает в models.
 
-- Константы разложены по доменам, один файл на связную группу:
-  - `telegram_api.go` — протокол Bot API: `TelegramFileBaseURL`, `TelegramMessageLimit`,
-    `TelegramMaxFileSize`;
-  - `stt_api.go` — API parakeet: `STTTranscriptionsPath`, `STTHealthPath`, `STTFileField`,
-    `STTLanguageField`, `STTMaxResponseSize`, `STTMaxErrorSnippet`;
-  - `audio_filenames.go` — `VoiceFilename`, `VideoNoteFilename`;
-  - `bot_commands.go` — `CommandPrefix`, `CommandStatus`, `CommandChats`;
-  - `bot_messages.go` — пользовательские тексты бота и префиксы ответов;
-  - `controller_timeouts.go` — `FailureReplyTimeout`, `HealthProbeTimeout`;
-  - `service_chat.go` — очередь, таймауты и rate limit доставки логов, `MsgSuppressedFormat`;
-  - `app_runtime.go` — `DefaultConfigPath`, `BotWorkers`.
+- Все константы лежат в одном файле `internal/models/consts.go`, разбитые на `const (...)`-блоки
+  по доменам, у каждого блока — короткий комментарий: рантайм приложения (`DefaultConfigPath`,
+  `BotWorkers`), протокол Bot API (`Telegram*`), API parakeet (`STT*`), имена файлов аудио
+  (`VoiceFilename`, `VideoNoteFilename`), команды бота (`Command*`), пользовательские тексты
+  (`Msg*`, `StatusPrefix`, `ChatsHeader`), таймауты контроллеров (`FailureReplyTimeout`,
+  `HealthProbeTimeout`), доставка логов в сервисный чат (`ServiceChat*`, `MsgSuppressedFormat`).
+- Файла на группу констант не заводим: новая константа добавляется в подходящий блок `consts.go`,
+  новый блок — только под новый домен. Правило «структура на файл» (2.5) на константы не
+  распространяется.
 - Имена читаются со стороны потребителя: в коде это всегда `models.X`, поэтому пакет в имени
   константы не дублируется, а сервис — наоборот, префиксом (`STT*`, `Telegram*`).
 - Один и тот же предел протокола не размножается: лимит скачивания Bot API — единственная константа
@@ -142,16 +170,20 @@
 `InitApp` выполняет шаги строго последовательно и паникует на первой ошибке — половина бота не нужна:
 
 1. config;
-2. logs;
-3. bot client (`bot.New`);
+2. logs (`logger.NewBaseHandler`);
+3. bot client (`telegramTransport.NewBotClient`);
 4. providers;
-5. log sink;
+5. log sink (`logger.NewServiceChatSink` + `logger.NewServiceChatHandler`);
 6. controllers;
-7. bot handlers (`RegisterHandlerMatchFunc`).
+7. bot handlers (`telegramTransport.NewDispatcher(...).RegisterHandlers`).
 
 Порядок нетривиален и должен сохраняться: telegram-провайдер строится поверх `*bot.Bot`, поэтому клиент
-создаётся до провайдеров; хендлеры регистрируются последними, потому что диспетчеры зовут контроллеры;
+создаётся до провайдеров; хендлеры регистрируются последними, потому что диспетчер зовёт контроллеры;
 log sink — после провайдеров, потому что доставляет записи через telegram-провайдер.
+
+Каждый шаг — три строки: проверить, что зависимость предыдущего шага не nil, позвать конструктор слоя
+и положить результат в поле `App` (либо зарегистрировать closer). Всё, что длиннее, — признак логики,
+которой в вайринге не место (см. 1.1).
 
 Правила расширения:
 
@@ -175,12 +207,15 @@ log sink — после провайдеров, потому что достав
 
 ## 5. Логи и сервисный чат
 
-- Логирование — `slog` (JSON handler в stdout), уровень из конфига.
+- Вся инфраструктура логирования живёт в `internal/logger`; вайринг только зовёт её конструкторы
+  (`NewBaseHandler`, `NewServiceChatSink`, `NewServiceChatHandler`) и регистрирует `sink.Close`
+  как closer.
+- Логирование — `slog` (JSON handler в stdout), уровень из конфига (`levelConfig.GetAppLogLevel`).
 - Поверх базового хендлера стоит `fanOutHandler`: запись уходит и в stdout, и (для `ERROR`) в
-  зеркало сервисного чата. Зеркало — обычный `slog.NewTextHandler`, пишущий в `serviceChatSink`
+  зеркало сервисного чата. Зеркало — обычный `slog.NewTextHandler`, пишущий в `ServiceChatSink`
   как в `io.Writer`: своего рендерера у sink'а нет и быть не должно.
 - Отправка не блокирует логирующего: очередь буферизирована, переполнение — дроп записи.
-- У доставки есть rate limit (`serviceChatRateBurst` за `serviceChatRateWindow`): повторяющийся сбой
+- У доставки есть rate limit (`models.ServiceChatRateBurst` за `models.ServiceChatRateWindow`): повторяющийся сбой
   иначе превращается в поток сообщений и выжигает квоту отправки, общую с ответами пользователям.
   Всё сверх лимита схлопывается в одну сводку «N записей подавлено».
 - Свои сбои sink пишет обычным `log` в stderr, **не через slog** — иначе рекурсия. По той же причине
@@ -188,14 +223,15 @@ log sink — после провайдеров, потому что достав
   логгером: библиотека зовёт этот колбэк и изнутри `sendMessage`, то есть из самого пути доставки sink'а.
 - Отмена контекста при shutdown логируется ниже `ERROR`: это не сбой сервиса, а остановка бота, и
   сервисный чат в этот момент как раз закрывается.
-- Контроллеры и провайдеры про сервисный чат не знают: они возвращают ошибки, а диспетчеры в `bot.go`
-  логируют их `slog.Error`.
+- Контроллеры и провайдеры про сервисный чат не знают: они возвращают ошибки, а диспетчер транспорта
+  (`internal/transport/telegram`, `logUpdateError`) логирует их `slog.Error`.
 
 ## 6. Telegram и безопасность
 
 - Токен бота **никогда** не попадает в текст ошибок и логов: URL скачивания файла содержит токен, поэтому
   ошибки транспорта редактируются. Редактирование живёт в одном месте — `models.RedactToken`; провайдер
-  оборачивает им ошибки (`wrapRedacted`), вайринг — ошибки `bot.New` и библиотеки.
+  оборачивает им ошибки (`wrapRedactedError`), транспорт — ошибки `bot.New` и библиотеки. Сам токен
+  берётся только геттером конфига (`GetTelegramToken`) в момент создания клиента.
 - В логи не уходит текст сообщений пользователей: у неудачной админской команды логируется только имя
   команды — ERROR-записи зеркалятся в сервисный чат.
 - Апдейты из чатов вне whitelist игнорируются молча — решение принимает `models.IsChatAllowed`.
@@ -217,9 +253,17 @@ log sink — после провайдеров, потому что достав
   отдельный кейс на каждую ошибку валидации. Каждый тест `NewConfig` начинается с очистки всех
   переменных конфига (`t.Setenv` + `os.Unsetenv`): иначе окружение разработчика и ломает тест, и
   маскирует опечатку в json-теге.
+- `internal/transport/telegram` — диспетчер тестируется ручными фейками контроллеров и конфига:
+  матчеры (в том числе чужой чат и команда не от админа), маппинг апдейта в `models.IncomingAudio`,
+  проглоченная ошибка контроллера и отмена контекста ниже `ERROR`; регистрация хендлеров — через фейк
+  `botRegistrar`: перепутанная пара «матчер → хендлер» иначе не ловится ничем. У `NewBotClient`
+  тестируется только офлайн-путь (пустой токен): успешный вызывает `getMe` по сети.
+- `internal/logger` — фейк отправителя и конфига: маршрутизация записей (ERROR в чат, остальное
+  только в stdout), атрибуты и группы, обрезка длинной записи, переполнение очереди, rate limit,
+  дренаж и идемпотентный `Close`, таймаут дренажа.
 - `cmd/app/app` — шаги `InitApp` тестируются по одному (включая проверки nil-зависимостей), `closeAll` —
-  на обратный порядок и агрегацию ошибок, а регистрация хендлеров — через фейк `botRegistrar`: перепутанная
-  пара «матчер → хендлер» иначе не ловится ничем.
+  на обратный порядок и агрегацию ошибок. Логики в вайринге нет, поэтому и тестов на неё нет: они
+  живут в слоях.
 
 ## 8. Команды разработки
 

@@ -119,11 +119,17 @@ docker run --rm -v "$PWD/config.json:/etc/tg-stt-bot/config.json:ro" \
 ## Структура
 
 ```
-cmd/app/            точка входа и вайринг (единственное место, где известны конкретные типы)
+cmd/app/            точка входа и вайринг: только сборка и инъекция зависимостей, без логики
 internal/configs/   загрузка и валидация конфига, getter-API
-internal/models/    чистые модели, функции (разбивка текста, проверка допуска чата) и все константы
+internal/models/    чистые модели, функции (разбивка текста, проверка допуска чата) и все константы (consts.go)
+internal/transport/
+  telegram/         long polling: клиент бота, диспетчер апдейтов, матчеры, допуск чата
+internal/logger/    базовый JSON-хендлер, fan-out и sink доставки ERROR-записей в сервисный чат
 internal/providers/ stt (parakeet HTTP) и telegram (Bot API)
 internal/controllers/
   chat-controller/  сценарий расшифровки голосовых и кружочков
   admin-controller/ команды админа
 ```
+
+Слои общаются через consumer-side интерфейсы, конкретные типы известны только вайрингу
+(`cmd/app/app`), у каждого слоя ровно один `errors.go`. Подробности — в [AGENTS.md](AGENTS.md).

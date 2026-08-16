@@ -1,12 +1,23 @@
-package app
+package telegram
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 	tgmodels "github.com/go-telegram/bot/models"
+)
+
+const (
+	testAdminID   int64 = 555
+	testAllowedID int64 = -100123
+	testForeignID int64 = -100999
+	testBotToken        = "123456:AAHtest-token"
 )
 
 // fakeChatController is a hand-written fake of the chatHandler interface.
@@ -48,17 +59,44 @@ func (f *fakeAdminController) HandleCommand(_ context.Context, chatID int64, com
 	return f.err
 }
 
-const (
-	testAdminID   int64 = 555
-	testAllowedID int64 = -100123
-	testForeignID int64 = -100999
-)
+// fakeConfig is a hand-written fake of the config interfaces this package
+// consumes: the chat access rules and the bot token.
+type fakeConfig struct {
+	adminID int64
+	allowed []int64
+	token   string
+}
 
-func newTestDispatcher() (*dispatcher, *fakeChatController, *fakeAdminController) {
+func (f fakeConfig) GetTelegramAdminID() int64 { return f.adminID }
+
+func (f fakeConfig) GetTelegramAllowedChats() []int64 { return f.allowed }
+
+func (f fakeConfig) GetTelegramToken() string { return f.token }
+
+func testConfig() fakeConfig {
+	return fakeConfig{adminID: testAdminID, allowed: []int64{testAllowedID}, token: testBotToken}
+}
+
+func newTestDispatcher() (*Dispatcher, *fakeChatController, *fakeAdminController) {
 	chat := &fakeChatController{}
 	admin := &fakeAdminController{}
 
-	return newDispatcher(chat, admin, testAdminID, []int64{testAllowedID}), chat, admin
+	return NewDispatcher(chat, admin, testConfig()), chat, admin
+}
+
+// captureDefaultLogger redirects the global logger into a buffer for the
+// duration of the test: controller failures are reported through it, and a
+// canceled context has to stay below ERROR so it never reaches the service chat.
+func captureDefaultLogger(t *testing.T) *bytes.Buffer {
+	t.Helper()
+
+	buf := &bytes.Buffer{}
+	previous := slog.Default()
+
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	slog.SetDefault(slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+
+	return buf
 }
 
 func voiceUpdate(chatID int64, messageID int) *tgmodels.Update {
@@ -305,9 +343,11 @@ func TestDispatcher_NonMessageUpdatesAreIgnored(t *testing.T) {
 }
 
 func TestDispatcher_ControllerErrorsAreSwallowed(t *testing.T) {
+	logOut := captureDefaultLogger(t)
+
 	chat := &fakeChatController{err: errors.New("stt is down")}
 	admin := &fakeAdminController{err: errors.New("chat not found")}
-	d := newDispatcher(chat, admin, testAdminID, []int64{testAllowedID})
+	d := NewDispatcher(chat, admin, testConfig())
 
 	// A failing controller must not panic the worker: the error is logged
 	// and the update is dropped.
@@ -319,30 +359,29 @@ func TestDispatcher_ControllerErrorsAreSwallowed(t *testing.T) {
 		t.Errorf("controllers called %+v / %+v / %+v, want one call each",
 			chat.voice, chat.videoNote, admin.calls)
 	}
+
+	if got := strings.Count(logOut.String(), "level=ERROR"); got != 3 {
+		t.Errorf("logged %d ERROR records, want one per failed update: %q", got, logOut.String())
+	}
 }
 
-func TestCommandName(t *testing.T) {
-	t.Parallel()
+// TestDispatcher_CanceledContextStaysBelowError pins the shutdown behavior: a
+// canceled context is the bot stopping, not a service failure, and an ERROR
+// record would be mirrored into a service chat that is closing right then.
+func TestDispatcher_CanceledContextStaysBelowError(t *testing.T) {
+	logOut := captureDefaultLogger(t)
 
-	tests := []struct {
-		name string
-		text string
-		want string
-	}{
-		{name: "plain command", text: "/status", want: "/status"},
-		{name: "command with argument", text: "/chats -100500", want: "/chats"},
-		{name: "command addressed to the bot", text: "/status@my_bot", want: "/status"},
-		{name: "padded command", text: "  /chats  ", want: "/chats"},
-		{name: "empty text", text: "", want: ""},
+	chat := &fakeChatController{err: fmt.Errorf("failed to send reply: %w", context.Canceled)}
+	d := NewDispatcher(chat, &fakeAdminController{}, testConfig())
+
+	d.handleVoice(context.Background(), nil, voiceUpdate(testAllowedID, 1))
+
+	out := logOut.String()
+	if strings.Contains(out, "level=ERROR") {
+		t.Errorf("log = %q, want the canceled context below ERROR", out)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := commandName(tt.text); got != tt.want {
-				t.Errorf("commandName(%q) = %q, want %q", tt.text, got, tt.want)
-			}
-		})
+	if !strings.Contains(out, "level=WARN") || !strings.Contains(out, "shutting down") {
+		t.Errorf("log = %q, want a WARN record marked as a shutdown", out)
 	}
 }
