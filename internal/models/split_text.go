@@ -7,9 +7,6 @@ import (
 	"unicode/utf8"
 )
 
-// TelegramMessageLimit is the maximum Telegram message length in UTF-16 code units.
-const TelegramMessageLimit = 4096
-
 // SplitText splits text into chunks whose length does not exceed limit,
 // counted in UTF-16 code units (Telegram counts message length this way).
 // Chunks are cut at line boundaries when possible, then at word boundaries,

@@ -17,7 +17,7 @@ type (
 
 	// sttProvider is the consumer-side interface of the STT provider.
 	sttProvider interface {
-		Transcribe(ctx context.Context, audio io.Reader, filename string) (string, error)
+		TranscribeAudio(ctx context.Context, audio io.Reader, filename string) (string, error)
 	}
 
 	// Controller handles voice messages and video notes. It holds no mutable

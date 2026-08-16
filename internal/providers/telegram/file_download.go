@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 	"github.com/1kovalevskiy/tg_stt_bot/internal/providers"
 	"github.com/go-telegram/bot"
 	tgmodels "github.com/go-telegram/bot/models"
@@ -31,7 +32,7 @@ func (p *Provider) DownloadFile(ctx context.Context, fileID string) (io.ReadClos
 		return nil, providers.ErrTelegramEmptyFilePath
 	}
 
-	url := fileBaseURL + "/file/bot" + p.config.GetTelegramToken() + "/" + file.FilePath
+	url := models.TelegramFileBaseURL + "/file/bot" + p.config.GetTelegramToken() + "/" + file.FilePath
 
 	ctx, cancel := context.WithTimeout(ctx, p.config.GetTelegramDownloadTimeout())
 
@@ -39,14 +40,14 @@ func (p *Provider) DownloadFile(ctx context.Context, fileID string) (io.ReadClos
 	if err != nil {
 		cancel()
 
-		return nil, p.wrapRedacted(providers.ErrTelegramBuildRequest, err)
+		return nil, p.wrapRedactedError(providers.ErrTelegramBuildRequest, err)
 	}
 
 	resp, err := p.client.Do(req)
 	if err != nil {
 		cancel()
 
-		return nil, p.wrapRedacted(providers.ErrTelegramDownloadFailed, err)
+		return nil, p.wrapRedactedError(providers.ErrTelegramDownloadFailed, err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -68,7 +69,7 @@ func (p *Provider) getFile(ctx context.Context, fileID string) (*tgmodels.File, 
 
 	file, err := p.api.GetFile(ctx, &bot.GetFileParams{FileID: fileID})
 	if err != nil {
-		return nil, p.wrapRedacted(providers.ErrTelegramGetFile, err)
+		return nil, p.wrapRedactedError(providers.ErrTelegramGetFile, err)
 	}
 
 	return file, nil

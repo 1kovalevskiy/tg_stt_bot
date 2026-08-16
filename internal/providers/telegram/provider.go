@@ -12,9 +12,6 @@ import (
 	tgmodels "github.com/go-telegram/bot/models"
 )
 
-// fileBaseURL is the Bot API host used to download files by file_path.
-const fileBaseURL = "https://api.telegram.org"
-
 type (
 	// botAPI is the consumer-side interface of *bot.Bot with the only
 	// methods this provider needs.

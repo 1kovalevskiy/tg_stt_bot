@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 	"github.com/1kovalevskiy/tg_stt_bot/internal/providers"
 )
 
@@ -80,7 +81,7 @@ func (r *recordedRequest) record(t *testing.T, req *http.Request) {
 	}
 }
 
-func TestTranscribe_Success_NoLanguage(t *testing.T) {
+func TestTranscribeAudio_Success_NoLanguage(t *testing.T) {
 	recorded := &recordedRequest{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recorded.record(t, r)
@@ -93,13 +94,13 @@ func TestTranscribe_Success_NoLanguage(t *testing.T) {
 
 	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
-	text, err := provider.Transcribe(context.Background(), strings.NewReader("audio-bytes"), "voice.ogg")
+	text, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio-bytes"), "voice.ogg")
 	if err != nil {
-		t.Fatalf("Transcribe() unexpected error: %v", err)
+		t.Fatalf("TranscribeAudio() unexpected error: %v", err)
 	}
 
 	if text != "hello world" {
-		t.Errorf("Transcribe() text = %q, want %q", text, "hello world")
+		t.Errorf("TranscribeAudio() text = %q, want %q", text, "hello world")
 	}
 
 	got := recorded.snapshot()
@@ -125,7 +126,7 @@ func TestTranscribe_Success_NoLanguage(t *testing.T) {
 	}
 }
 
-func TestTranscribe_Success_WithLanguage(t *testing.T) {
+func TestTranscribeAudio_Success_WithLanguage(t *testing.T) {
 	recorded := &recordedRequest{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recorded.record(t, r)
@@ -138,13 +139,13 @@ func TestTranscribe_Success_WithLanguage(t *testing.T) {
 
 	provider := newTestProvider(server.URL, "ru", testTimeout, server.Client())
 
-	text, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
+	text, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if err != nil {
-		t.Fatalf("Transcribe() unexpected error: %v", err)
+		t.Fatalf("TranscribeAudio() unexpected error: %v", err)
 	}
 
 	if text != "privet" {
-		t.Errorf("Transcribe() text = %q, want %q", text, "privet")
+		t.Errorf("TranscribeAudio() text = %q, want %q", text, "privet")
 	}
 
 	got := recorded.snapshot()
@@ -158,7 +159,7 @@ func TestTranscribe_Success_WithLanguage(t *testing.T) {
 	}
 }
 
-func TestTranscribe_HTTPErrorWithOpenAIEnvelope(t *testing.T) {
+func TestTranscribeAudio_HTTPErrorWithOpenAIEnvelope(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 
@@ -170,25 +171,25 @@ func TestTranscribe_HTTPErrorWithOpenAIEnvelope(t *testing.T) {
 
 	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
-	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
+	_, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if err == nil {
-		t.Fatal("Transcribe() expected error, got nil")
+		t.Fatal("TranscribeAudio() expected error, got nil")
 	}
 
 	if !errors.Is(err, providers.ErrSTTUnexpectedStatus) {
-		t.Errorf("Transcribe() error = %v, want errors.Is providers.ErrSTTUnexpectedStatus", err)
+		t.Errorf("TranscribeAudio() error = %v, want errors.Is providers.ErrSTTUnexpectedStatus", err)
 	}
 
 	if !strings.Contains(err.Error(), "unsupported audio format") {
-		t.Errorf("Transcribe() error = %q, want it to contain envelope message", err.Error())
+		t.Errorf("TranscribeAudio() error = %q, want it to contain envelope message", err.Error())
 	}
 
 	if !strings.Contains(err.Error(), "400") {
-		t.Errorf("Transcribe() error = %q, want it to contain status code", err.Error())
+		t.Errorf("TranscribeAudio() error = %q, want it to contain status code", err.Error())
 	}
 }
 
-func TestTranscribe_HTTPErrorWithoutEnvelope(t *testing.T) {
+func TestTranscribeAudio_HTTPErrorWithoutEnvelope(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 
@@ -200,17 +201,17 @@ func TestTranscribe_HTTPErrorWithoutEnvelope(t *testing.T) {
 
 	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
-	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
+	_, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if !errors.Is(err, providers.ErrSTTUnexpectedStatus) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTUnexpectedStatus", err)
+		t.Fatalf("TranscribeAudio() error = %v, want errors.Is providers.ErrSTTUnexpectedStatus", err)
 	}
 
 	if !strings.Contains(err.Error(), "boom") {
-		t.Errorf("Transcribe() error = %q, want it to contain body snippet", err.Error())
+		t.Errorf("TranscribeAudio() error = %q, want it to contain body snippet", err.Error())
 	}
 }
 
-func TestTranscribe_ContextDeadline(t *testing.T) {
+func TestTranscribeAudio_ContextDeadline(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
@@ -226,21 +227,21 @@ func TestTranscribe_ContextDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 
-	_, err := provider.Transcribe(ctx, strings.NewReader("audio"), "voice.ogg")
+	_, err := provider.TranscribeAudio(ctx, strings.NewReader("audio"), "voice.ogg")
 	if err == nil {
-		t.Fatal("Transcribe() expected error, got nil")
+		t.Fatal("TranscribeAudio() expected error, got nil")
 	}
 
 	if !errors.Is(err, providers.ErrSTTRequestTimeout) {
-		t.Errorf("Transcribe() error = %v, want errors.Is providers.ErrSTTRequestTimeout", err)
+		t.Errorf("TranscribeAudio() error = %v, want errors.Is providers.ErrSTTRequestTimeout", err)
 	}
 
 	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("Transcribe() error = %v, want it to wrap context.DeadlineExceeded", err)
+		t.Errorf("TranscribeAudio() error = %v, want it to wrap context.DeadlineExceeded", err)
 	}
 }
 
-func TestTranscribe_ConfiguredTimeout(t *testing.T) {
+func TestTranscribeAudio_ConfiguredTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
@@ -254,17 +255,17 @@ func TestTranscribe_ConfiguredTimeout(t *testing.T) {
 	// No deadline on the caller's context: the timeout comes from the config.
 	provider := newTestProvider(server.URL, "", 20*time.Millisecond, server.Client())
 
-	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
+	_, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if !errors.Is(err, providers.ErrSTTRequestTimeout) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTRequestTimeout", err)
+		t.Fatalf("TranscribeAudio() error = %v, want errors.Is providers.ErrSTTRequestTimeout", err)
 	}
 
 	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("Transcribe() error = %v, want it to wrap context.DeadlineExceeded", err)
+		t.Errorf("TranscribeAudio() error = %v, want it to wrap context.DeadlineExceeded", err)
 	}
 }
 
-func TestTranscribe_ContextCanceled(t *testing.T) {
+func TestTranscribeAudio_ContextCanceled(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -275,23 +276,23 @@ func TestTranscribe_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := provider.Transcribe(ctx, strings.NewReader("audio"), "voice.ogg")
+	_, err := provider.TranscribeAudio(ctx, strings.NewReader("audio"), "voice.ogg")
 	// A cancellation is the caller shutting down, not the service failing:
 	// it must not be reported as a timeout.
 	if !errors.Is(err, providers.ErrSTTRequestCanceled) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTRequestCanceled", err)
+		t.Fatalf("TranscribeAudio() error = %v, want errors.Is providers.ErrSTTRequestCanceled", err)
 	}
 
 	if errors.Is(err, providers.ErrSTTRequestTimeout) {
-		t.Errorf("Transcribe() error = %v, want a cancellation told apart from a timeout", err)
+		t.Errorf("TranscribeAudio() error = %v, want a cancellation told apart from a timeout", err)
 	}
 
 	if !errors.Is(err, context.Canceled) {
-		t.Errorf("Transcribe() error = %v, want it to wrap context.Canceled", err)
+		t.Errorf("TranscribeAudio() error = %v, want it to wrap context.Canceled", err)
 	}
 }
 
-func TestTranscribe_InvalidJSONResponse(t *testing.T) {
+func TestTranscribeAudio_InvalidJSONResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if _, err := w.Write([]byte("not-a-json")); err != nil {
 			t.Errorf("write response: %v", err)
@@ -301,21 +302,21 @@ func TestTranscribe_InvalidJSONResponse(t *testing.T) {
 
 	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
-	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
+	_, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if !errors.Is(err, providers.ErrSTTInvalidResponse) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTInvalidResponse", err)
+		t.Fatalf("TranscribeAudio() error = %v, want errors.Is providers.ErrSTTInvalidResponse", err)
 	}
 }
 
-func TestTranscribe_ServiceUnavailable(t *testing.T) {
+func TestTranscribeAudio_ServiceUnavailable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	server.Close() // shut down before the call: connection refused
 
 	provider := newTestProvider(server.URL, "", testTimeout, &http.Client{})
 
-	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
+	_, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if !errors.Is(err, providers.ErrSTTServiceUnavailable) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTServiceUnavailable", err)
+		t.Fatalf("TranscribeAudio() error = %v, want errors.Is providers.ErrSTTServiceUnavailable", err)
 	}
 }
 
@@ -336,7 +337,7 @@ func (r *failingReader) Read(p []byte) (int, error) {
 	return copy(p, r.head), nil
 }
 
-func TestTranscribe_AudioReadFailureIsNotAnSTTFailure(t *testing.T) {
+func TestTranscribeAudio_AudioReadFailureIsNotAnSTTFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("request sent, want the failure detected before any request")
 	}))
@@ -346,22 +347,22 @@ func TestTranscribe_AudioReadFailureIsNotAnSTTFailure(t *testing.T) {
 
 	readErr := errors.New("connection reset by peer")
 
-	_, err := provider.Transcribe(context.Background(), &failingReader{head: "audio", err: readErr}, "voice.ogg")
+	_, err := provider.TranscribeAudio(context.Background(), &failingReader{head: "audio", err: readErr}, "voice.ogg")
 	if !errors.Is(err, providers.ErrSTTReadAudio) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTReadAudio", err)
+		t.Fatalf("TranscribeAudio() error = %v, want errors.Is providers.ErrSTTReadAudio", err)
 	}
 
 	if !errors.Is(err, readErr) {
-		t.Errorf("Transcribe() error = %v, want it to wrap the reader failure", err)
+		t.Errorf("TranscribeAudio() error = %v, want it to wrap the reader failure", err)
 	}
 
 	// The audio source failed, so the STT service must not be blamed for it.
 	if errors.Is(err, providers.ErrSTTBuildRequest) {
-		t.Errorf("Transcribe() error = %v, want the audio failure told apart from a request failure", err)
+		t.Errorf("TranscribeAudio() error = %v, want the audio failure told apart from a request failure", err)
 	}
 }
 
-func TestTranscribe_AudioOverTheSizeLimitIsRejected(t *testing.T) {
+func TestTranscribeAudio_AudioOverTheSizeLimitIsRejected(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("request sent, want oversized audio rejected before any request")
 	}))
@@ -371,15 +372,15 @@ func TestTranscribe_AudioOverTheSizeLimitIsRejected(t *testing.T) {
 
 	// One byte over the limit: a plain LimitReader would silently send a
 	// truncated file instead of failing.
-	audio := strings.NewReader(strings.Repeat("a", maxAudioSize+1))
+	audio := strings.NewReader(strings.Repeat("a", models.TelegramMaxFileSize+1))
 
-	_, err := provider.Transcribe(context.Background(), audio, "voice.ogg")
+	_, err := provider.TranscribeAudio(context.Background(), audio, "voice.ogg")
 	if !errors.Is(err, providers.ErrSTTAudioTooLarge) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTAudioTooLarge", err)
+		t.Fatalf("TranscribeAudio() error = %v, want errors.Is providers.ErrSTTAudioTooLarge", err)
 	}
 }
 
-func TestTranscribe_AudioExactlyAtTheSizeLimitIsSent(t *testing.T) {
+func TestTranscribeAudio_AudioExactlyAtTheSizeLimitIsSent(t *testing.T) {
 	recorded := &recordedRequest{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recorded.record(t, r)
@@ -392,23 +393,23 @@ func TestTranscribe_AudioExactlyAtTheSizeLimitIsSent(t *testing.T) {
 
 	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
-	audio := strings.Repeat("a", maxAudioSize)
+	audio := strings.Repeat("a", models.TelegramMaxFileSize)
 
-	text, err := provider.Transcribe(context.Background(), strings.NewReader(audio), "voice.ogg")
+	text, err := provider.TranscribeAudio(context.Background(), strings.NewReader(audio), "voice.ogg")
 	if err != nil {
-		t.Fatalf("Transcribe() unexpected error: %v", err)
+		t.Fatalf("TranscribeAudio() unexpected error: %v", err)
 	}
 
 	if text != "ok" {
-		t.Errorf("Transcribe() text = %q, want %q", text, "ok")
+		t.Errorf("TranscribeAudio() text = %q, want %q", text, "ok")
 	}
 
-	if got := len(recorded.snapshot().fileContent); got != maxAudioSize {
-		t.Errorf("server received %d bytes, want the whole %d", got, maxAudioSize)
+	if got := len(recorded.snapshot().fileContent); got != models.TelegramMaxFileSize {
+		t.Errorf("server received %d bytes, want the whole %d", got, models.TelegramMaxFileSize)
 	}
 }
 
-func TestTranscribe_RedirectStatusIsNotATranscript(t *testing.T) {
+func TestTranscribeAudio_RedirectStatusIsNotATranscript(t *testing.T) {
 	// A 3xx body is not a transcript: without the upper 2xx bound it would be
 	// parsed and returned as recognized text.
 	for _, status := range []int{http.StatusFound, http.StatusNotModified} {
@@ -422,9 +423,9 @@ func TestTranscribe_RedirectStatusIsNotATranscript(t *testing.T) {
 			},
 		})
 
-		_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
+		_, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio"), "voice.ogg")
 		if !errors.Is(err, providers.ErrSTTUnexpectedStatus) {
-			t.Errorf("Transcribe() error for status %d = %v, want errors.Is providers.ErrSTTUnexpectedStatus",
+			t.Errorf("TranscribeAudio() error for status %d = %v, want errors.Is providers.ErrSTTUnexpectedStatus",
 				status, err)
 		}
 
@@ -432,11 +433,11 @@ func TestTranscribe_RedirectStatusIsNotATranscript(t *testing.T) {
 	}
 }
 
-func TestTranscribe_OversizedResponseIsRejected(t *testing.T) {
+func TestTranscribeAudio_OversizedResponseIsRejected(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// A misrouted base_url answering with a huge page must not come back
 		// as "invalid response": the size is the actual problem.
-		if _, err := w.Write([]byte(`{"text":"` + strings.Repeat("a", maxResponseSize) + `"}`)); err != nil {
+		if _, err := w.Write([]byte(`{"text":"` + strings.Repeat("a", models.STTMaxResponseSize) + `"}`)); err != nil {
 			t.Errorf("write response: %v", err)
 		}
 	}))
@@ -444,18 +445,18 @@ func TestTranscribe_OversizedResponseIsRejected(t *testing.T) {
 
 	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
-	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
+	_, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if !errors.Is(err, providers.ErrSTTResponseTooLarge) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTResponseTooLarge", err)
+		t.Fatalf("TranscribeAudio() error = %v, want errors.Is providers.ErrSTTResponseTooLarge", err)
 	}
 
 	if errors.Is(err, providers.ErrSTTInvalidResponse) {
-		t.Errorf("Transcribe() error = %v, want the size failure told apart from a decode failure", err)
+		t.Errorf("TranscribeAudio() error = %v, want the size failure told apart from a decode failure", err)
 	}
 }
 
-func TestTranscribe_ResponseAtTheReadLimitIsAccepted(t *testing.T) {
-	text := strings.Repeat("a", maxResponseSize-len(`{"text":""}`))
+func TestTranscribeAudio_ResponseAtTheReadLimitIsAccepted(t *testing.T) {
+	text := strings.Repeat("a", models.STTMaxResponseSize-len(`{"text":""}`))
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if _, err := w.Write([]byte(`{"text":"` + text + `"}`)); err != nil {
@@ -466,18 +467,18 @@ func TestTranscribe_ResponseAtTheReadLimitIsAccepted(t *testing.T) {
 
 	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
-	got, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
+	got, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if err != nil {
-		t.Fatalf("Transcribe() unexpected error: %v", err)
+		t.Fatalf("TranscribeAudio() unexpected error: %v", err)
 	}
 
 	if got != text {
-		t.Errorf("Transcribe() returned %d characters, want %d", len(got), len(text))
+		t.Errorf("TranscribeAudio() returned %d characters, want %d", len(got), len(text))
 	}
 }
 
-func TestTranscribe_ErrorBodySnippetIsTruncated(t *testing.T) {
-	body := strings.Repeat("b", maxErrorSnippet*4)
+func TestTranscribeAudio_ErrorBodySnippetIsTruncated(t *testing.T) {
+	body := strings.Repeat("b", models.STTMaxErrorSnippet*4)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -490,15 +491,15 @@ func TestTranscribe_ErrorBodySnippetIsTruncated(t *testing.T) {
 
 	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
-	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
+	_, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if !errors.Is(err, providers.ErrSTTUnexpectedStatus) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTUnexpectedStatus", err)
+		t.Fatalf("TranscribeAudio() error = %v, want errors.Is providers.ErrSTTUnexpectedStatus", err)
 	}
 
 	// The whole body would otherwise land in slog.Error and from there in the
 	// service chat.
-	if strings.Count(err.Error(), "b") > maxErrorSnippet {
-		t.Errorf("Transcribe() error carries %d body bytes, want at most %d",
-			strings.Count(err.Error(), "b"), maxErrorSnippet)
+	if strings.Count(err.Error(), "b") > models.STTMaxErrorSnippet {
+		t.Errorf("TranscribeAudio() error carries %d body bytes, want at most %d",
+			strings.Count(err.Error(), "b"), models.STTMaxErrorSnippet)
 	}
 }

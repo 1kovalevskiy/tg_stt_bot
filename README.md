@@ -121,7 +121,7 @@ docker run --rm -v "$PWD/config.json:/etc/tg-stt-bot/config.json:ro" \
 ```
 cmd/app/            точка входа и вайринг (единственное место, где известны конкретные типы)
 internal/configs/   загрузка и валидация конфига, getter-API
-internal/models/    чистые модели и функции (разбивка текста, проверка допуска чата)
+internal/models/    чистые модели, функции (разбивка текста, проверка допуска чата) и все константы
 internal/providers/ stt (parakeet HTTP) и telegram (Bot API)
 internal/controllers/
   chat-controller/  сценарий расшифровки голосовых и кружочков

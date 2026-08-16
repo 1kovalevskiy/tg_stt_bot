@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/1kovalevskiy/tg_stt_bot/internal/configs"
+	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 )
 
 // initConfig takes the config from the options or loads it from disk.
@@ -14,7 +15,7 @@ func (a *App) initConfig(opts *Opts) error {
 		return nil
 	}
 
-	path := defaultConfigPath
+	path := models.DefaultConfigPath
 	if opts != nil && opts.ConfigPath != "" {
 		path = opts.ConfigPath
 	}

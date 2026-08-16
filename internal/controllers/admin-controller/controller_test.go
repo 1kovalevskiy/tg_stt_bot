@@ -44,7 +44,7 @@ type fakeSTT struct {
 	err    error
 }
 
-func (f *fakeSTT) Health(ctx context.Context) (string, error) {
+func (f *fakeSTT) CheckHealth(ctx context.Context) (string, error) {
 	f.calls++
 	f.gotCtx = ctx
 
@@ -76,10 +76,10 @@ func TestHandleCommand_StatusHealthySTT(t *testing.T) {
 	}
 
 	if stt.calls != 1 {
-		t.Errorf("Health called %d times, want 1", stt.calls)
+		t.Errorf("CheckHealth called %d times, want 1", stt.calls)
 	}
 
-	want := sentMessage{chatID: adminChatID, text: statusPrefix + `{"status":"ok"}`}
+	want := sentMessage{chatID: adminChatID, text: models.StatusPrefix + `{"status":"ok"}`}
 	if len(telegram.messages) != 1 || telegram.messages[0] != want {
 		t.Errorf("messages = %+v, want [%+v]", telegram.messages, want)
 	}
@@ -100,8 +100,8 @@ func TestHandleCommand_StatusDeadSTT(t *testing.T) {
 		t.Errorf("HandleCommand() error = %v, want it to wrap the provider error", err)
 	}
 
-	if len(telegram.messages) != 1 || telegram.messages[0].text != msgSTTUnhealthy {
-		t.Errorf("messages = %+v, want single %q message", telegram.messages, msgSTTUnhealthy)
+	if len(telegram.messages) != 1 || telegram.messages[0].text != models.MsgSTTUnhealthy {
+		t.Errorf("messages = %+v, want single %q message", telegram.messages, models.MsgSTTUnhealthy)
 	}
 }
 
@@ -136,10 +136,10 @@ func TestHandleCommand_Chats(t *testing.T) {
 	}
 
 	if stt.calls != 0 {
-		t.Errorf("Health called %d times, want 0 for /chats", stt.calls)
+		t.Errorf("CheckHealth called %d times, want 0 for /chats", stt.calls)
 	}
 
-	want := sentMessage{chatID: adminChatID, text: chatsHeader + "\n-100123\n42"}
+	want := sentMessage{chatID: adminChatID, text: models.ChatsHeader + "\n-100123\n42"}
 	if len(telegram.messages) != 1 || telegram.messages[0] != want {
 		t.Errorf("messages = %+v, want [%+v]", telegram.messages, want)
 	}
@@ -153,8 +153,8 @@ func TestHandleCommand_ChatsEmptyWhitelist(t *testing.T) {
 		t.Fatalf("HandleCommand() unexpected error: %v", err)
 	}
 
-	if len(telegram.messages) != 1 || telegram.messages[0].text != msgNoChats {
-		t.Errorf("messages = %+v, want single %q message", telegram.messages, msgNoChats)
+	if len(telegram.messages) != 1 || telegram.messages[0].text != models.MsgNoChats {
+		t.Errorf("messages = %+v, want single %q message", telegram.messages, models.MsgNoChats)
 	}
 }
 
@@ -195,10 +195,10 @@ func TestHandleCommand_UnknownCommand(t *testing.T) {
 			}
 
 			if stt.calls != 0 {
-				t.Errorf("Health called %d times, want 0 for an unknown command", stt.calls)
+				t.Errorf("CheckHealth called %d times, want 0 for an unknown command", stt.calls)
 			}
 
-			if len(telegram.messages) != 1 || telegram.messages[0].text != msgUnknownCommand {
+			if len(telegram.messages) != 1 || telegram.messages[0].text != models.MsgUnknownCommand {
 				t.Errorf("messages = %+v, want single hint message", telegram.messages)
 			}
 		})
@@ -230,14 +230,14 @@ func TestHandleCommand_NormalizesCommand(t *testing.T) {
 
 			gotHealth := stt.calls == 1
 			if gotHealth != tt.wantHealth {
-				t.Fatalf("Health called = %v, want %v", gotHealth, tt.wantHealth)
+				t.Fatalf("CheckHealth called = %v, want %v", gotHealth, tt.wantHealth)
 			}
 
 			if len(telegram.messages) != 1 {
 				t.Fatalf("messages = %+v, want exactly one", telegram.messages)
 			}
 
-			if tt.wantHealth && !strings.HasPrefix(telegram.messages[0].text, statusPrefix) {
+			if tt.wantHealth && !strings.HasPrefix(telegram.messages[0].text, models.StatusPrefix) {
 				t.Errorf("message = %q, want the status report", telegram.messages[0].text)
 			}
 		})
@@ -269,7 +269,7 @@ func TestHandleCommand_NormalizesChatsCommand(t *testing.T) {
 				t.Fatalf("messages = %+v, want exactly one", telegram.messages)
 			}
 
-			gotChats := strings.HasPrefix(telegram.messages[0].text, chatsHeader)
+			gotChats := strings.HasPrefix(telegram.messages[0].text, models.ChatsHeader)
 			if gotChats != tt.wantChats {
 				t.Errorf("whitelist reported = %v, want %v for %q", gotChats, tt.wantChats, tt.command)
 			}
@@ -367,8 +367,8 @@ func TestHandleCommand_StatusProbeHasItsOwnTimeout(t *testing.T) {
 		t.Fatal("health probe context has no deadline, want the health timeout applied")
 	}
 
-	if left := time.Until(deadline); left > healthTimeout {
-		t.Errorf("health probe has %v left, want at most %v", left, healthTimeout)
+	if left := time.Until(deadline); left > models.HealthProbeTimeout {
+		t.Errorf("health probe has %v left, want at most %v", left, models.HealthProbeTimeout)
 	}
 }
 
@@ -391,7 +391,7 @@ func TestHandleCommand_StatusReplyDoesNotInheritTheProbeDeadline(t *testing.T) {
 		t.Fatal("send context has no deadline, want the caller's one")
 	}
 
-	if left := time.Until(deadline); left <= healthTimeout {
-		t.Errorf("send context has %v left, want more than the health timeout %v", left, healthTimeout)
+	if left := time.Until(deadline); left <= models.HealthProbeTimeout {
+		t.Errorf("send context has %v left, want more than the health timeout %v", left, models.HealthProbeTimeout)
 	}
 }

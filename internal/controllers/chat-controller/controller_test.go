@@ -80,7 +80,7 @@ type fakeSTT struct {
 	err  error
 }
 
-func (f *fakeSTT) Transcribe(_ context.Context, audio io.Reader, filename string) (string, error) {
+func (f *fakeSTT) TranscribeAudio(_ context.Context, audio io.Reader, filename string) (string, error) {
 	f.calls++
 	f.gotFilenames = append(f.gotFilenames, filename)
 
@@ -119,8 +119,8 @@ func TestHandleVoice_Success(t *testing.T) {
 		t.Errorf("STT got audio %q, want %q", stt.gotAudio, "audio-bytes")
 	}
 
-	if len(stt.gotFilenames) != 1 || stt.gotFilenames[0] != voiceFilename {
-		t.Errorf("STT got filenames %v, want [%s]", stt.gotFilenames, voiceFilename)
+	if len(stt.gotFilenames) != 1 || stt.gotFilenames[0] != models.VoiceFilename {
+		t.Errorf("STT got filenames %v, want [%s]", stt.gotFilenames, models.VoiceFilename)
 	}
 
 	if len(telegram.replies) != 1 {
@@ -146,8 +146,8 @@ func TestHandleVideoNote_Success(t *testing.T) {
 		t.Fatalf("HandleVideoNote() unexpected error: %v", err)
 	}
 
-	if len(stt.gotFilenames) != 1 || stt.gotFilenames[0] != videoNoteFilename {
-		t.Errorf("STT got filenames %v, want [%s]", stt.gotFilenames, videoNoteFilename)
+	if len(stt.gotFilenames) != 1 || stt.gotFilenames[0] != models.VideoNoteFilename {
+		t.Errorf("STT got filenames %v, want [%s]", stt.gotFilenames, models.VideoNoteFilename)
 	}
 
 	if len(telegram.replies) != 1 || telegram.replies[0].text != "текст из кружочка" {
@@ -201,8 +201,8 @@ func TestHandleVoice_EmptyTranscription(t *testing.T) {
 		t.Fatalf("HandleVoice() unexpected error: %v", err)
 	}
 
-	if len(telegram.replies) != 1 || telegram.replies[0].text != msgNoSpeech {
-		t.Errorf("replies = %+v, want single %q reply", telegram.replies, msgNoSpeech)
+	if len(telegram.replies) != 1 || telegram.replies[0].text != models.MsgNoSpeech {
+		t.Errorf("replies = %+v, want single %q reply", telegram.replies, models.MsgNoSpeech)
 	}
 
 	if !telegram.body.closed {
@@ -216,7 +216,7 @@ func TestHandleVoice_FileTooLarge(t *testing.T) {
 	controller := NewController(telegram, stt)
 
 	audio := testAudio()
-	audio.FileSize = maxFileSize + 1
+	audio.FileSize = models.TelegramMaxFileSize + 1
 
 	if err := controller.HandleVoice(context.Background(), audio); err != nil {
 		t.Fatalf("HandleVoice() unexpected error: %v", err)
@@ -227,11 +227,11 @@ func TestHandleVoice_FileTooLarge(t *testing.T) {
 	}
 
 	if stt.calls != 0 {
-		t.Errorf("Transcribe called %d times, want 0 for an oversized file", stt.calls)
+		t.Errorf("TranscribeAudio called %d times, want 0 for an oversized file", stt.calls)
 	}
 
-	if len(telegram.replies) != 1 || telegram.replies[0].text != msgFileTooLarge {
-		t.Errorf("replies = %+v, want single %q reply", telegram.replies, msgFileTooLarge)
+	if len(telegram.replies) != 1 || telegram.replies[0].text != models.MsgFileTooLarge {
+		t.Errorf("replies = %+v, want single %q reply", telegram.replies, models.MsgFileTooLarge)
 	}
 }
 
@@ -252,11 +252,11 @@ func TestHandleVoice_DownloadError(t *testing.T) {
 	}
 
 	if stt.calls != 0 {
-		t.Errorf("Transcribe called %d times, want 0 after a download failure", stt.calls)
+		t.Errorf("TranscribeAudio called %d times, want 0 after a download failure", stt.calls)
 	}
 
-	if len(telegram.replies) != 1 || telegram.replies[0].text != msgTranscribeFailed {
-		t.Errorf("replies = %+v, want single %q reply", telegram.replies, msgTranscribeFailed)
+	if len(telegram.replies) != 1 || telegram.replies[0].text != models.MsgTranscribeFailed {
+		t.Errorf("replies = %+v, want single %q reply", telegram.replies, models.MsgTranscribeFailed)
 	}
 }
 
@@ -275,8 +275,8 @@ func TestHandleVoice_TranscribeError(t *testing.T) {
 		t.Errorf("HandleVoice() error = %v, want it to wrap the provider error", err)
 	}
 
-	if len(telegram.replies) != 1 || telegram.replies[0].text != msgTranscribeFailed {
-		t.Errorf("replies = %+v, want single %q reply", telegram.replies, msgTranscribeFailed)
+	if len(telegram.replies) != 1 || telegram.replies[0].text != models.MsgTranscribeFailed {
+		t.Errorf("replies = %+v, want single %q reply", telegram.replies, models.MsgTranscribeFailed)
 	}
 
 	if !telegram.body.closed {
@@ -329,7 +329,7 @@ func TestHandleVoice_FileSizeBoundary(t *testing.T) {
 		{
 			name: "exactly at the limit is still served",
 			// getFile does serve a file of exactly this size.
-			fileSize:      maxFileSize,
+			fileSize:      models.TelegramMaxFileSize,
 			wantTranscibe: true,
 			wantReply:     "привет мир",
 		},
@@ -343,9 +343,9 @@ func TestHandleVoice_FileSizeBoundary(t *testing.T) {
 		},
 		{
 			name:          "one byte over the limit is rejected",
-			fileSize:      maxFileSize + 1,
+			fileSize:      models.TelegramMaxFileSize + 1,
 			wantTranscibe: false,
-			wantReply:     msgFileTooLarge,
+			wantReply:     models.MsgFileTooLarge,
 		},
 	}
 
@@ -363,7 +363,7 @@ func TestHandleVoice_FileSizeBoundary(t *testing.T) {
 			}
 
 			if got := stt.calls > 0; got != tt.wantTranscibe {
-				t.Errorf("Transcribe called = %v, want %v for size %d", got, tt.wantTranscibe, tt.fileSize)
+				t.Errorf("TranscribeAudio called = %v, want %v for size %d", got, tt.wantTranscibe, tt.fileSize)
 			}
 
 			if len(telegram.replies) != 1 || telegram.replies[0].text != tt.wantReply {
@@ -396,8 +396,8 @@ func TestHandleVoice_ChunkFailureNotifiesTheUser(t *testing.T) {
 
 	// A truncated transcript with no notice would look like the whole answer.
 	last := telegram.replies[len(telegram.replies)-1]
-	if last.text != msgTranscribeFailed {
-		t.Errorf("last reply = %q, want %q after a chunk failure", last.text, msgTranscribeFailed)
+	if last.text != models.MsgTranscribeFailed {
+		t.Errorf("last reply = %q, want %q after a chunk failure", last.text, models.MsgTranscribeFailed)
 	}
 }
 
@@ -414,8 +414,8 @@ func TestHandleVoice_FailureNoticeSurvivesCanceledContext(t *testing.T) {
 		t.Fatalf("HandleVoice() error = %v, want errors.Is controllers.ErrTranscribeAudio", err)
 	}
 
-	if len(telegram.replies) != 1 || telegram.replies[0].text != msgTranscribeFailed {
-		t.Fatalf("replies = %+v, want single %q reply", telegram.replies, msgTranscribeFailed)
+	if len(telegram.replies) != 1 || telegram.replies[0].text != models.MsgTranscribeFailed {
+		t.Fatalf("replies = %+v, want single %q reply", telegram.replies, models.MsgTranscribeFailed)
 	}
 
 	// On shutdown the incoming context is already canceled: reusing it would
@@ -454,7 +454,7 @@ func TestHandleVoice_ReplyErrorOnExpectedOutcomes(t *testing.T) {
 		fileSize int64
 		text     string
 	}{
-		{name: "file too large", fileSize: maxFileSize + 1, text: "unused"},
+		{name: "file too large", fileSize: models.TelegramMaxFileSize + 1, text: "unused"},
 		{name: "no speech", fileSize: 1024, text: "   "},
 	}
 

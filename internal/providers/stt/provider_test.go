@@ -54,8 +54,8 @@ func TestNewProvider_ReadsConfigOnEveryCall(t *testing.T) {
 	config := &fakeConfig{baseURL: server.URL, language: "ru", timeout: testTimeout}
 	provider := NewProvider(config, server.Client())
 
-	if _, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg"); err != nil {
-		t.Fatalf("first Transcribe() unexpected error: %v", err)
+	if _, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio"), "voice.ogg"); err != nil {
+		t.Fatalf("first TranscribeAudio() unexpected error: %v", err)
 	}
 
 	if got := recorded.snapshot(); got.language != "ru" {
@@ -64,8 +64,8 @@ func TestNewProvider_ReadsConfigOnEveryCall(t *testing.T) {
 
 	config.language = "en"
 
-	if _, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg"); err != nil {
-		t.Fatalf("second Transcribe() unexpected error: %v", err)
+	if _, err := provider.TranscribeAudio(context.Background(), strings.NewReader("audio"), "voice.ogg"); err != nil {
+		t.Fatalf("second TranscribeAudio() unexpected error: %v", err)
 	}
 
 	if got := recorded.snapshot(); got.language != "en" {

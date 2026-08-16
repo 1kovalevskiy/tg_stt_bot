@@ -13,7 +13,7 @@ import (
 	"github.com/1kovalevskiy/tg_stt_bot/internal/providers"
 )
 
-func TestHealth_Success(t *testing.T) {
+func TestCheckHealth_Success(t *testing.T) {
 	// The handler runs on the server's goroutine: what it records is guarded
 	// by a mutex on both sides.
 	var (
@@ -35,13 +35,13 @@ func TestHealth_Success(t *testing.T) {
 
 	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
-	body, err := provider.Health(context.Background())
+	body, err := provider.CheckHealth(context.Background())
 	if err != nil {
-		t.Fatalf("Health() unexpected error: %v", err)
+		t.Fatalf("CheckHealth() unexpected error: %v", err)
 	}
 
 	if body != `{"status":"ok"}` {
-		t.Errorf("Health() body = %q, want %q", body, `{"status":"ok"}`)
+		t.Errorf("CheckHealth() body = %q, want %q", body, `{"status":"ok"}`)
 	}
 
 	mu.Lock()
@@ -56,7 +56,7 @@ func TestHealth_Success(t *testing.T) {
 	}
 }
 
-func TestHealth_UnexpectedStatus(t *testing.T) {
+func TestCheckHealth_UnexpectedStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 
@@ -68,21 +68,21 @@ func TestHealth_UnexpectedStatus(t *testing.T) {
 
 	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
-	_, err := provider.Health(context.Background())
+	_, err := provider.CheckHealth(context.Background())
 	if !errors.Is(err, providers.ErrSTTUnexpectedStatus) {
-		t.Fatalf("Health() error = %v, want errors.Is providers.ErrSTTUnexpectedStatus", err)
+		t.Fatalf("CheckHealth() error = %v, want errors.Is providers.ErrSTTUnexpectedStatus", err)
 	}
 
 	if !strings.Contains(err.Error(), "503") {
-		t.Errorf("Health() error = %q, want it to contain status code", err.Error())
+		t.Errorf("CheckHealth() error = %q, want it to contain status code", err.Error())
 	}
 
 	if !strings.Contains(err.Error(), "db down") {
-		t.Errorf("Health() error = %q, want it to contain body snippet", err.Error())
+		t.Errorf("CheckHealth() error = %q, want it to contain body snippet", err.Error())
 	}
 }
 
-func TestHealth_ConfiguredTimeout(t *testing.T) {
+func TestCheckHealth_ConfiguredTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
@@ -96,29 +96,29 @@ func TestHealth_ConfiguredTimeout(t *testing.T) {
 	// No deadline on the caller's context: the timeout comes from the config.
 	provider := newTestProvider(server.URL, "", 20*time.Millisecond, server.Client())
 
-	_, err := provider.Health(context.Background())
+	_, err := provider.CheckHealth(context.Background())
 	if !errors.Is(err, providers.ErrSTTRequestTimeout) {
-		t.Fatalf("Health() error = %v, want errors.Is providers.ErrSTTRequestTimeout", err)
+		t.Fatalf("CheckHealth() error = %v, want errors.Is providers.ErrSTTRequestTimeout", err)
 	}
 
 	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("Health() error = %v, want it to wrap context.DeadlineExceeded", err)
+		t.Errorf("CheckHealth() error = %v, want it to wrap context.DeadlineExceeded", err)
 	}
 }
 
-func TestHealth_ServiceUnavailable(t *testing.T) {
+func TestCheckHealth_ServiceUnavailable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	server.Close() // shut down before the call: connection refused
 
 	provider := newTestProvider(server.URL, "", testTimeout, &http.Client{})
 
-	_, err := provider.Health(context.Background())
+	_, err := provider.CheckHealth(context.Background())
 	if !errors.Is(err, providers.ErrSTTServiceUnavailable) {
-		t.Fatalf("Health() error = %v, want errors.Is providers.ErrSTTServiceUnavailable", err)
+		t.Fatalf("CheckHealth() error = %v, want errors.Is providers.ErrSTTServiceUnavailable", err)
 	}
 }
 
-func TestHealth_ResponseBodyReadFailure(t *testing.T) {
+func TestCheckHealth_ResponseBodyReadFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// A body announced but never fully delivered: the connection drops
 		// while the response is being read.
@@ -139,13 +139,13 @@ func TestHealth_ResponseBodyReadFailure(t *testing.T) {
 
 	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
-	_, err := provider.Health(context.Background())
+	_, err := provider.CheckHealth(context.Background())
 	if !errors.Is(err, providers.ErrSTTReadResponse) {
-		t.Fatalf("Health() error = %v, want errors.Is providers.ErrSTTReadResponse", err)
+		t.Fatalf("CheckHealth() error = %v, want errors.Is providers.ErrSTTReadResponse", err)
 	}
 }
 
-func TestHealth_ContextCanceled(t *testing.T) {
+func TestCheckHealth_ContextCanceled(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -156,8 +156,8 @@ func TestHealth_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := provider.Health(ctx)
+	_, err := provider.CheckHealth(ctx)
 	if !errors.Is(err, providers.ErrSTTRequestCanceled) {
-		t.Fatalf("Health() error = %v, want errors.Is providers.ErrSTTRequestCanceled", err)
+		t.Fatalf("CheckHealth() error = %v, want errors.Is providers.ErrSTTRequestCanceled", err)
 	}
 }

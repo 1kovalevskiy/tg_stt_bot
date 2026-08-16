@@ -505,12 +505,12 @@ func TestSendReply_Error(t *testing.T) {
 func TestWrapRedacted_EmptyTokenLeavesMessageIntact(t *testing.T) {
 	provider := NewProvider(&fakeBotAPI{}, fakeConfig{apiTimeout: testAPITimeout}, &fakeDoer{})
 
-	err := provider.wrapRedacted(providers.ErrTelegramSendMessage, errors.New("chat not found"))
+	err := provider.wrapRedactedError(providers.ErrTelegramSendMessage, errors.New("chat not found"))
 	if !strings.Contains(err.Error(), "chat not found") {
-		t.Errorf("wrapRedacted() = %q, want it to contain the underlying message", err.Error())
+		t.Errorf("wrapRedactedError() = %q, want it to contain the underlying message", err.Error())
 	}
 
 	if strings.Contains(err.Error(), models.RedactedToken) {
-		t.Errorf("wrapRedacted() = %q, want no redaction marker for an empty token", err.Error())
+		t.Errorf("wrapRedactedError() = %q, want no redaction marker for an empty token", err.Error())
 	}
 }

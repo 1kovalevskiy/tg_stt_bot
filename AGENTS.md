@@ -10,7 +10,8 @@
 - `Dockerfile` копирует в образ только `cmd/` и `internal/`: новая директория с кодом верхнего уровня
   пройдёт lint и тесты, но сломает сборку образа — её нужно добавить в `COPY` руками.
 - `internal/configs/` — конфиг на cleanenv (файл + env), валидация, getter-API.
-- `internal/models/` — чистые модели и функции без инфраструктурных зависимостей.
+- `internal/models/` — чистые модели, функции и **все** константы проекта, без инфраструктурных
+  зависимостей.
 - `internal/providers/` — `errors.go` слоя провайдеров (пакет `providers`), общий для его подпакетов.
 - `internal/providers/stt/` — HTTP-клиент parakeet.
 - `internal/providers/telegram/` — Bot API: скачивание файлов, отправка сообщений и reply.
@@ -32,7 +33,8 @@
   апдейты обрабатываются несколькими воркерами.
 - Конфиг тоже приходит интерфейсом (`configProvider` в пакете-потребителе) — везде, где слою нужны
   его значения: сейчас это оба провайдера и `admin-controller` (`chat-controller` от конфига не
-  зависит: лимит файла и таймаут уведомления — константы протокола, а не настройки). Значения
+  зависит: лимит файла и таймаут уведомления — константы протокола из `internal/models`, а не
+  настройки). Значения
   читаются геттерами по месту использования, а не копируются в поля конструктором: в конструктор
   передаётся конфиг целиком, а не набор строк и duration'ов.
 
@@ -60,10 +62,32 @@
 ### 2.3 Метод на файл
 
 - `controller.go` / `provider.go` — структура слоя, её интерфейсы-зависимости и конструктор.
-- Каждый публичный метод — в отдельном файле (`transcribe.go`, `health.go`, `download_file.go`,
-  `send_message.go`, `send_reply.go`, `handle_voice.go`, `handle_video_note.go`, `handle_command.go`).
-- Приватные помощники выносятся в свои файлы, если так читается лучше (`do_request.go`, `redact.go`,
-  `cancel_read_closer.go`, `transcribe_and_reply.go`, `log_sink.go`).
+- Каждый публичный метод — в отдельном файле (`audio_transcribe.go`, `health_check.go`,
+  `file_download.go`, `message_send.go`, `reply_send.go`, `voice_handle.go`, `video_note_handle.go`,
+  `command_handle.go`).
+- Приватные помощники выносятся в свои файлы, если так читается лучше (`request_do.go`,
+  `error_redact.go`, `read_closer_cancel.go`, `audio_transcribe_and_reply.go`, `log_sink.go`).
+
+### 2.3.1 Имена методов и файлов: `действиеОбъект` и `объект_действие.go`
+
+Правило владельца, обязательное для `internal/controllers/**` и `internal/providers/**`:
+
+- **Методы** (публичные и приватные) называются `действиеОбъект` — сначала глагол, потом
+  существительное: `DownloadFile`, `SendMessage`, `SendReply`, `HandleVoice`, `HandleVideoNote`,
+  `HandleCommand`, `TranscribeAudio`, `CheckHealth`, `sendStatus`, `sendChats`, `sendText`,
+  `checkHealth`, `transcribeAudio`, `sendReply`, `sendFailureReply`, `wrapRedactedError`,
+  `buildStatusError`. Голого существительного (`Health`, `status`, `chats`) и голого глагола без
+  объекта (`send`, `reply`) быть не должно.
+- **Файлы** называются наоборот — `объект_действие.go`, зеркально методу, который в них лежит:
+  `DownloadFile` → `file_download.go`, `SendReply` → `reply_send.go`, `TranscribeAudio` →
+  `audio_transcribe.go`, `CheckHealth` → `health_check.go`, `HandleCommand` → `command_handle.go`.
+  Тот же вид у файлов приватных помощников (`request_do.go`, `error_redact.go`,
+  `read_closer_cancel.go`) и у их `_test.go`-двойников.
+- `controller.go`, `provider.go`, `errors.go` имена сохраняют: это файлы слоя, а не файлы метода.
+- Исключение — методы интерфейсов stdlib: `Read`/`Close` у `cancelReadCloser` реализуют
+  `io.ReadCloser` и переименованию не подлежат.
+- Вайринг (`cmd/app/app/`) под это правило не попадает: там файлы называются по этапу инициализации
+  (`bot.go`, `logs.go`, `providers.go`, `controllers.go`).
 
 ### 2.4 Таймауты внешних вызовов
 
@@ -81,9 +105,37 @@
 
 ### 2.5 internal/models
 
-- Только чистая логика: без HTTP, без Telegram, без конфигов и логгера.
+- Только чистая логика: без HTTP, без Telegram, без конфигов и логгера. Из зависимостей — стдлиб
+  (`strings`, `time`, `slices`, …), и ничего больше.
 - Каждая структура со своими методами — в отдельном файле, поддиректории по необходимости.
 - Общая логика двух контроллеров (разбивка текста, проверка допуска чата) живёт здесь, а не дублируется.
+
+### 2.6 Все константы — только в internal/models
+
+Правило владельца: именованных констант вне `internal/models` в продакшн-коде быть не должно —
+ни в контроллерах, ни в провайдерах, ни в вайринге, ни в конфигах. Литералы по месту тоже
+не годятся: значение получает имя и уезжает в models.
+
+- Константы разложены по доменам, один файл на связную группу:
+  - `telegram_api.go` — протокол Bot API: `TelegramFileBaseURL`, `TelegramMessageLimit`,
+    `TelegramMaxFileSize`;
+  - `stt_api.go` — API parakeet: `STTTranscriptionsPath`, `STTHealthPath`, `STTFileField`,
+    `STTLanguageField`, `STTMaxResponseSize`, `STTMaxErrorSnippet`;
+  - `audio_filenames.go` — `VoiceFilename`, `VideoNoteFilename`;
+  - `bot_commands.go` — `CommandPrefix`, `CommandStatus`, `CommandChats`;
+  - `bot_messages.go` — пользовательские тексты бота и префиксы ответов;
+  - `controller_timeouts.go` — `FailureReplyTimeout`, `HealthProbeTimeout`;
+  - `service_chat.go` — очередь, таймауты и rate limit доставки логов, `MsgSuppressedFormat`;
+  - `app_runtime.go` — `DefaultConfigPath`, `BotWorkers`.
+- Имена читаются со стороны потребителя: в коде это всегда `models.X`, поэтому пакет в имени
+  константы не дублируется, а сервис — наоборот, префиксом (`STT*`, `Telegram*`).
+- Один и тот же предел протокола не размножается: лимит скачивания Bot API — единственная константа
+  `models.TelegramMaxFileSize`, её проверяют и chat-контроллер (по `FileSize` из апдейта), и
+  STT-провайдер (по размеру буферизованного тела запроса).
+- Настройки в константы не переезжают и наоборот: то, что меняется от окружения, живёт в
+  `internal/configs` и отдаётся геттером; в models — только то, что задано протоколом или кодом.
+- Исключение — константы-фикстуры внутри `*_test.go` (`testToken`, `testTimeout`, `adminChatID`, …):
+  это часть теста, а не продакшн-кода, и они остаются рядом с ним.
 
 ## 3. Инициализация и жизненный цикл
 
@@ -187,7 +239,8 @@ log sink — после провайдеров, потому что достав
 - Комментарии в коде — на английском, документация и планы — на русском.
 - `context.Context` передаётся сверху вниз; фоновые контексты создаются только в log sink, где вызывающего
   контекста нет.
-- Пользовательские тексты бота — константы в начале файла-обработчика, не литералы по месту.
+- Пользовательские тексты бота — константы `internal/models` (`models.MsgNoSpeech`, …), не литералы
+  по месту и не константы в файле-обработчике (см. 2.6).
 - Библиотечный пакет `github.com/go-telegram/bot/models` импортируется как `tgmodels`, чтобы не
   сталкиваться с `internal/models`.
 

@@ -12,20 +12,6 @@ import (
 	tgmodels "github.com/go-telegram/bot/models"
 )
 
-const (
-	// botWorkers is the number of concurrent update handlers. Transcription
-	// takes seconds, and the library default of one worker would make every
-	// chat wait for the previous one.
-	//
-	// The number only bounds concurrency together with WithNotAsyncHandlers:
-	// by default the library runs every handler in its own goroutine and the
-	// workers just drain the updates channel, so a burst of voice messages
-	// would hold an unbounded number of downloaded files in memory.
-	botWorkers = 4
-	// commandPrefix marks a message as a bot command.
-	commandPrefix = "/"
-)
-
 type (
 	// chatHandler is the consumer-side interface of the chat controller.
 	chatHandler interface {
@@ -85,10 +71,10 @@ func (a *App) initBotClient() error {
 
 	client, err := bot.New(
 		token,
-		bot.WithWorkers(botWorkers),
+		bot.WithWorkers(models.BotWorkers),
 		// Handlers run in the workers instead of a goroutine per update, so
-		// botWorkers actually caps the number of concurrent transcriptions
-		// and the memory they hold.
+		// models.BotWorkers actually caps the number of concurrent
+		// transcriptions and the memory they hold.
 		bot.WithNotAsyncHandlers(),
 		bot.WithDefaultHandler(ignoreUpdate),
 		bot.WithErrorsHandler(func(err error) {
@@ -163,7 +149,7 @@ func (d *dispatcher) matchAdminCommand(update *tgmodels.Update) bool {
 		return false
 	}
 
-	return strings.HasPrefix(strings.TrimSpace(update.Message.Text), commandPrefix)
+	return strings.HasPrefix(strings.TrimSpace(update.Message.Text), models.CommandPrefix)
 }
 
 // handleVoice passes a voice message to the chat controller. The access check

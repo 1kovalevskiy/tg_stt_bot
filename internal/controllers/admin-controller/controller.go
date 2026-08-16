@@ -13,7 +13,7 @@ type (
 
 	// sttProvider is the consumer-side interface of the STT provider.
 	sttProvider interface {
-		Health(ctx context.Context) (string, error)
+		CheckHealth(ctx context.Context) (string, error)
 	}
 
 	// configProvider is the consumer-side interface of the application config.

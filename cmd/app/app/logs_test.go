@@ -73,7 +73,7 @@ func newTestLogger(t *testing.T, sender *fakeSender, queueSize int) (*slog.Logge
 
 func TestServiceChatHandler_ErrorGoesToServiceChat(t *testing.T) {
 	sender := &fakeSender{}
-	logger, stdout, errOut, sink := newTestLogger(t, sender, serviceChatQueueSize)
+	logger, stdout, errOut, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
 	logger.Error("stt is down", "err", "connection refused")
 
@@ -114,7 +114,7 @@ func TestServiceChatHandler_ErrorGoesToServiceChat(t *testing.T) {
 
 func TestServiceChatHandler_NonErrorStaysInStdout(t *testing.T) {
 	sender := &fakeSender{}
-	logger, stdout, _, sink := newTestLogger(t, sender, serviceChatQueueSize)
+	logger, stdout, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
 	logger.Info("bot started")
 	logger.Warn("slow transcription")
@@ -143,7 +143,7 @@ func TestServiceChatHandler_ErrorPassesHigherInnerLevel(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	// The inner handler drops everything: ERROR must still reach the sink.
 	inner := slog.NewTextHandler(stdout, &slog.HandlerOptions{Level: slog.LevelError + 1})
-	sink := newServiceChatSink(sender, serviceChatID, serviceChatQueueSize, log.New(io.Discard, "", 0))
+	sink := newServiceChatSink(sender, serviceChatID, models.ServiceChatQueueSize, log.New(io.Discard, "", 0))
 	logger := slog.New(newFanOutHandler(inner, newServiceChatMirror(sink)))
 
 	logger.Error("boom")
@@ -163,7 +163,7 @@ func TestServiceChatHandler_ErrorPassesHigherInnerLevel(t *testing.T) {
 
 func TestServiceChatHandler_WithAttrsAndGroupKeepAttributes(t *testing.T) {
 	sender := &fakeSender{}
-	logger, _, _, sink := newTestLogger(t, sender, serviceChatQueueSize)
+	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
 	logger.With("component", "chat").
 		WithGroup("audio").
@@ -193,7 +193,7 @@ func TestServiceChatHandler_WithAttrsAndGroupKeepAttributes(t *testing.T) {
 
 func TestServiceChatHandler_GroupAttrIsFlattened(t *testing.T) {
 	sender := &fakeSender{}
-	logger, _, _, sink := newTestLogger(t, sender, serviceChatQueueSize)
+	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
 	logger.Error("failed", slog.Group("stt", slog.String("status", "500"), slog.Int("attempt", 2)))
 
@@ -213,7 +213,7 @@ func TestServiceChatHandler_GroupAttrIsFlattened(t *testing.T) {
 
 func TestServiceChatHandler_LongRecordTruncatedToOneMessage(t *testing.T) {
 	sender := &fakeSender{}
-	logger, _, _, sink := newTestLogger(t, sender, serviceChatQueueSize)
+	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
 	logger.Error(strings.Repeat("очень длинная ошибка ", 500))
 
@@ -275,7 +275,7 @@ func TestServiceChatSink_OverflowDoesNotBlock(t *testing.T) {
 func TestServiceChatSink_SendFailureIsReportedWithoutRecursion(t *testing.T) {
 	sendErr := errors.New("chat not found")
 	sender := &fakeSender{err: sendErr}
-	logger, _, errOut, sink := newTestLogger(t, sender, serviceChatQueueSize)
+	logger, _, errOut, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
 	logger.Error("stt is down")
 
@@ -294,7 +294,7 @@ func TestServiceChatSink_SendFailureIsReportedWithoutRecursion(t *testing.T) {
 
 func TestServiceChatSink_CloseDrainsQueue(t *testing.T) {
 	sender := &fakeSender{}
-	logger, _, _, sink := newTestLogger(t, sender, serviceChatQueueSize)
+	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
 	const records = 10
 
@@ -313,7 +313,7 @@ func TestServiceChatSink_CloseDrainsQueue(t *testing.T) {
 
 func TestServiceChatSink_CloseIsIdempotentAndDropsLaterRecords(t *testing.T) {
 	sender := &fakeSender{}
-	logger, _, errOut, sink := newTestLogger(t, sender, serviceChatQueueSize)
+	logger, _, errOut, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
 	if err := sink.Close(); err != nil {
 		t.Fatalf("first Close() unexpected error: %v", err)
@@ -381,7 +381,7 @@ func TestServiceChatSink_CloseReportsDrainTimeout(t *testing.T) {
 	defer close(release)
 
 	sender := &fakeSender{block: release}
-	logger, _, _, sink := newTestLogger(t, sender, serviceChatQueueSize)
+	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
 	// The drain must not outlive a stuck delivery forever; shortened here so
 	// the test does not wait out a real send timeout.
@@ -396,11 +396,11 @@ func TestServiceChatSink_CloseReportsDrainTimeout(t *testing.T) {
 
 func TestServiceChatSink_RateLimitCapsDeliveriesAndReportsTheRest(t *testing.T) {
 	sender := &fakeSender{}
-	logger, _, _, sink := newTestLogger(t, sender, serviceChatQueueSize)
+	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
 	const extra = 5
 
-	for i := 0; i < serviceChatRateBurst+extra; i++ {
+	for i := 0; i < models.ServiceChatRateBurst+extra; i++ {
 		logger.Error("repeating failure")
 	}
 
@@ -411,19 +411,19 @@ func TestServiceChatSink_RateLimitCapsDeliveriesAndReportsTheRest(t *testing.T) 
 	sent := sender.sent()
 
 	// The burst plus a single summary of everything the limit dropped.
-	if len(sent) != serviceChatRateBurst+1 {
-		t.Fatalf("sender got %d messages, want %d", len(sent), serviceChatRateBurst+1)
+	if len(sent) != models.ServiceChatRateBurst+1 {
+		t.Fatalf("sender got %d messages, want %d", len(sent), models.ServiceChatRateBurst+1)
 	}
 
 	summary := sent[len(sent)-1]
-	if !strings.Contains(summary, fmt.Sprintf(msgSuppressedFormat, extra)) {
+	if !strings.Contains(summary, fmt.Sprintf(models.MsgSuppressedFormat, extra)) {
 		t.Errorf("last message = %q, want a summary of %d suppressed records", summary, extra)
 	}
 }
 
 func TestServiceChatSink_WriteTruncatesToOneMessage(t *testing.T) {
 	sender := &fakeSender{}
-	sink := newServiceChatSink(sender, serviceChatID, serviceChatQueueSize, log.New(io.Discard, "", 0))
+	sink := newServiceChatSink(sender, serviceChatID, models.ServiceChatQueueSize, log.New(io.Discard, "", 0))
 
 	long := strings.Repeat("\U0001F600", models.TelegramMessageLimit)
 

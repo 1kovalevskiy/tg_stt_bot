@@ -5,10 +5,11 @@ import (
 	"flag"
 
 	"github.com/1kovalevskiy/tg_stt_bot/cmd/app/app"
+	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 )
 
 func main() {
-	configPath := flag.String("config", "config.json", "path to the config file")
+	configPath := flag.String("config", models.DefaultConfigPath, "path to the config file")
 	flag.Parse()
 
 	ctx := context.Background()

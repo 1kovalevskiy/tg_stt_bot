@@ -17,7 +17,7 @@ func (p *Provider) SendMessage(ctx context.Context, chatID int64, text string) e
 		Text:   text,
 	})
 	if err != nil {
-		return p.wrapRedacted(providers.ErrTelegramSendMessage, err)
+		return p.wrapRedactedError(providers.ErrTelegramSendMessage, err)
 	}
 
 	return nil

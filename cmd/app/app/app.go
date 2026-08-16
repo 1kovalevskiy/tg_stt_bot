@@ -15,6 +15,7 @@ import (
 	"github.com/1kovalevskiy/tg_stt_bot/internal/configs"
 	adminController "github.com/1kovalevskiy/tg_stt_bot/internal/controllers/admin-controller"
 	chatController "github.com/1kovalevskiy/tg_stt_bot/internal/controllers/chat-controller"
+	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 	sttProvider "github.com/1kovalevskiy/tg_stt_bot/internal/providers/stt"
 	telegramProvider "github.com/1kovalevskiy/tg_stt_bot/internal/providers/telegram"
 	"github.com/go-telegram/bot"
@@ -56,9 +57,6 @@ type (
 		Config     *configs.Config
 	}
 )
-
-// defaultConfigPath is used when no -config flag is given.
-const defaultConfigPath = "config.json"
 
 // InitApp builds the application step by step and panics if any step fails:
 // a half-wired bot is not worth running.
@@ -103,7 +101,7 @@ func (a *App) RunApp(ctx context.Context) {
 		}
 	}()
 
-	slog.Info("bot started", "workers", botWorkers)
+	slog.Info("bot started", "workers", models.BotWorkers)
 
 	// Start returns when ctx is canceled, i.e. on a shutdown signal.
 	a.Bot.Start(ctx)

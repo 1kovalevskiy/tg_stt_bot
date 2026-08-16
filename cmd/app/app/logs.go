@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+
+	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 )
 
 // initLogs installs the base JSON logger writing to stdout.
@@ -41,7 +43,7 @@ func (a *App) initLogSink() error {
 	sink := newServiceChatSink(
 		a.Providers.Telegram,
 		a.Config.GetTelegramServiceChatID(),
-		serviceChatQueueSize,
+		models.ServiceChatQueueSize,
 		nil,
 	)
 

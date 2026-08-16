@@ -14,26 +14,6 @@ import (
 	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 )
 
-const (
-	// serviceChatQueueSize is how many ERROR records may wait for delivery
-	// before new ones are dropped instead of blocking the logging caller.
-	serviceChatQueueSize = 64
-	// serviceChatSendTimeout bounds a single delivery attempt.
-	serviceChatSendTimeout = 15 * time.Second
-	// serviceChatDrainTimeout bounds the queue drain on shutdown. It has to
-	// exceed a single send timeout, otherwise Close reports a failure for a
-	// delivery that is still perfectly on time.
-	serviceChatDrainTimeout = serviceChatSendTimeout + 5*time.Second
-	// serviceChatRateWindow and serviceChatRateBurst cap how many records may
-	// be delivered per window: a repeating failure would otherwise turn into
-	// one Telegram message per occurrence, flooding the chat and burning the
-	// send quota shared with user replies.
-	serviceChatRateWindow = time.Minute
-	serviceChatRateBurst  = 10
-	// msgSuppressedFormat reports how many records the rate limit dropped.
-	msgSuppressedFormat = "%d error records suppressed by the service chat rate limit"
-)
-
 type (
 	// serviceChatSender is the consumer-side interface used to deliver
 	// records to the service chat.
@@ -89,7 +69,7 @@ func newServiceChatSink(sender serviceChatSender, chatID int64, queueSize int, e
 		queue:        make(chan string, queueSize),
 		done:         make(chan struct{}),
 		errLog:       errLog,
-		drainTimeout: serviceChatDrainTimeout,
+		drainTimeout: models.ServiceChatDrainTimeout,
 	}
 
 	go sink.run()
@@ -160,7 +140,7 @@ func (s *serviceChatSink) run() {
 	for text := range s.queue {
 		s.rotateWindow(time.Now())
 
-		if s.windowSent >= serviceChatRateBurst {
+		if s.windowSent >= models.ServiceChatRateBurst {
 			s.suppressed++
 
 			continue
@@ -176,7 +156,7 @@ func (s *serviceChatSink) run() {
 // rotateWindow starts a new rate window once the current one has expired,
 // reporting what the expired one had to drop.
 func (s *serviceChatSink) rotateWindow(now time.Time) {
-	if !s.windowStart.IsZero() && now.Sub(s.windowStart) < serviceChatRateWindow {
+	if !s.windowStart.IsZero() && now.Sub(s.windowStart) < models.ServiceChatRateWindow {
 		return
 	}
 
@@ -197,12 +177,12 @@ func (s *serviceChatSink) reportSuppressed() {
 	count := s.suppressed
 	s.suppressed = 0
 
-	s.deliver(fmt.Sprintf(msgSuppressedFormat, count))
+	s.deliver(fmt.Sprintf(models.MsgSuppressedFormat, count))
 }
 
 // deliver sends a single record to the service chat.
 func (s *serviceChatSink) deliver(text string) {
-	ctx, cancel := context.WithTimeout(context.Background(), serviceChatSendTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), models.ServiceChatSendTimeout)
 	defer cancel()
 
 	if err := s.sender.SendMessage(ctx, s.chatID, text); err != nil {
