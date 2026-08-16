@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/1kovalevskiy/tg_stt_bot/internal/controllers"
 )
 
 const (
@@ -37,7 +39,7 @@ func (c *Controller) HandleCommand(ctx context.Context, chatID int64, command st
 func (c *Controller) status(ctx context.Context, chatID int64) error {
 	health, err := c.stt.Health(ctx)
 	if err != nil {
-		return errors.Join(fmt.Errorf("%w: %w", ErrSTTHealth, err), c.send(ctx, chatID, msgSTTUnhealthy))
+		return errors.Join(fmt.Errorf("%w: %w", controllers.ErrSTTHealth, err), c.send(ctx, chatID, msgSTTUnhealthy))
 	}
 
 	return c.send(ctx, chatID, statusPrefix+health)
@@ -63,7 +65,7 @@ func (c *Controller) chats(ctx context.Context, chatID int64) error {
 // send sends text to the chat.
 func (c *Controller) send(ctx context.Context, chatID int64, text string) error {
 	if err := c.telegram.SendMessage(ctx, chatID, text); err != nil {
-		return fmt.Errorf("%w: %w", ErrSendMessage, err)
+		return fmt.Errorf("%w: %w", controllers.ErrSendMessage, err)
 	}
 
 	return nil

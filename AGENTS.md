@@ -9,8 +9,10 @@
   `config.go`, `logs.go`, `log_sink.go`, `providers.go`, `controllers.go`, `bot.go`, `errors.go`.
 - `internal/configs/` — конфиг на cleanenv (файл + env), валидация, getter-API.
 - `internal/models/` — чистые модели и функции без инфраструктурных зависимостей.
+- `internal/providers/` — `errors.go` слоя провайдеров (пакет `providers`), общий для его подпакетов.
 - `internal/providers/stt/` — HTTP-клиент parakeet.
 - `internal/providers/telegram/` — Bot API: скачивание файлов, отправка сообщений и reply.
+- `internal/controllers/` — `errors.go` слоя контроллеров (пакет `controllers`), общий для его подпакетов.
 - `internal/controllers/chat-controller/` — сценарий расшифровки аудио.
 - `internal/controllers/admin-controller/` — команды в личке админа.
 
@@ -27,10 +29,21 @@
 - Провайдеры и контроллеры не держат мутабельного состояния и безопасны для конкурентного использования:
   апдейты обрабатываются несколькими воркерами.
 
-### 2.2 errors.go в каждом слое
+### 2.2 Один errors.go на слой
 
-- В корне каждого пакета-слоя лежит `errors.go`, и **все** сентинелы ошибок объявляются там.
-  Ошибок «по месту» (`errors.New`/`fmt.Errorf` без сентинела) в коде слоя быть не должно.
+- У слоя ровно один `errors.go`, и **все** его сентинелы объявляются там — не по подпакетам:
+  - `internal/controllers/errors.go` (пакет `controllers`) — ошибки chat- и admin-контроллера;
+  - `internal/providers/errors.go` (пакет `providers`) — ошибки stt- и telegram-провайдера.
+- Однопакетные слои держат свой `errors.go` рядом с кодом: `internal/configs/errors.go`,
+  `internal/models/errors.go`, `cmd/app/app/errors.go`.
+- Внутри подпакета слоя (`chat-controller`, `admin-controller`, `stt`, `telegram`) своего `errors.go`
+  быть не должно: подпакет импортирует общий пакет слоя и оборачивает в его сентинелы
+  (`controllers.ErrSendReply`, `providers.ErrSTTUnexpectedStatus`).
+- Имена сентинелов уникальны в пределах файла слоя. У провайдеров они префиксованы внешним сервисом
+  (`ErrSTTBuildRequest` / `ErrTelegramBuildRequest`, `ErrSTTUnexpectedStatus` /
+  `ErrTelegramUnexpectedStatus`): одинаковые режимы отказа у stt и telegram — разные ошибки и
+  сливаться в одну не должны.
+- Ошибок «по месту» (`errors.New`/`fmt.Errorf` без сентинела) в коде слоя быть не должно.
 - На границе слоёв ошибка обязательно оборачивается принимающим слоем: `fmt.Errorf("%w: %w", ErrXxx, err)`.
   Внутри слоя обёртки — по необходимости.
 - `internal/models/errors.go` пустой по правилу слоя: чистые модели ошибок не возвращают.

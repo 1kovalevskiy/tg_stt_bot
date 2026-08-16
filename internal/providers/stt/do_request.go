@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/1kovalevskiy/tg_stt_bot/internal/providers"
 )
 
 const (
@@ -28,7 +30,7 @@ func (p *Provider) doRequest(req *http.Request) ([]byte, error) {
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrReadResponse, err)
+		return nil, fmt.Errorf("%w: %w", providers.ErrSTTReadResponse, err)
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
@@ -40,13 +42,13 @@ func (p *Provider) doRequest(req *http.Request) ([]byte, error) {
 
 // wrapTransportError wraps a client.Do error into a layer error, folding
 // context cancellation and deadlines (including http.Client timeouts)
-// into ErrRequestTimeout.
+// into providers.ErrSTTRequestTimeout.
 func wrapTransportError(err error) error {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return fmt.Errorf("%w: %w", ErrRequestTimeout, err)
+		return fmt.Errorf("%w: %w", providers.ErrSTTRequestTimeout, err)
 	}
 
-	return fmt.Errorf("%w: %w", ErrServiceUnavailable, err)
+	return fmt.Errorf("%w: %w", providers.ErrSTTServiceUnavailable, err)
 }
 
 // statusError builds a layer error for a non-2xx response, best-effort
@@ -59,14 +61,14 @@ func statusError(statusCode int, body []byte) error {
 	}
 
 	if err := json.Unmarshal(body, &envelope); err == nil && envelope.Error.Message != "" {
-		return fmt.Errorf("%w: status %d: %s", ErrUnexpectedStatus, statusCode, envelope.Error.Message)
+		return fmt.Errorf("%w: status %d: %s", providers.ErrSTTUnexpectedStatus, statusCode, envelope.Error.Message)
 	}
 
 	if snippet := errorSnippet(body); snippet != "" {
-		return fmt.Errorf("%w: status %d: %s", ErrUnexpectedStatus, statusCode, snippet)
+		return fmt.Errorf("%w: status %d: %s", providers.ErrSTTUnexpectedStatus, statusCode, snippet)
 	}
 
-	return fmt.Errorf("%w: status %d", ErrUnexpectedStatus, statusCode)
+	return fmt.Errorf("%w: status %d", providers.ErrSTTUnexpectedStatus, statusCode)
 }
 
 // errorSnippet trims a raw error body down to a short printable snippet.

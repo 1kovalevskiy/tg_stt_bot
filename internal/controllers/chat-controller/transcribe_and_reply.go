@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/1kovalevskiy/tg_stt_bot/internal/controllers"
 	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 )
 
@@ -56,7 +57,7 @@ func (c *Controller) transcribeAndReply(ctx context.Context, audio models.Incomi
 func (c *Controller) transcribe(ctx context.Context, audio models.IncomingAudio, filename string) (string, error) {
 	file, err := c.telegram.DownloadFile(ctx, audio.FileID)
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrDownloadAudio, err)
+		return "", fmt.Errorf("%w: %w", controllers.ErrDownloadAudio, err)
 	}
 
 	defer func() {
@@ -67,7 +68,7 @@ func (c *Controller) transcribe(ctx context.Context, audio models.IncomingAudio,
 
 	text, err := c.stt.Transcribe(ctx, file, filename)
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrTranscribeAudio, err)
+		return "", fmt.Errorf("%w: %w", controllers.ErrTranscribeAudio, err)
 	}
 
 	return text, nil
@@ -76,7 +77,7 @@ func (c *Controller) transcribe(ctx context.Context, audio models.IncomingAudio,
 // reply sends text as a reply to the original message.
 func (c *Controller) reply(ctx context.Context, audio models.IncomingAudio, text string) error {
 	if err := c.telegram.SendReply(ctx, audio.ChatID, audio.MessageID, text); err != nil {
-		return fmt.Errorf("%w: %w", ErrSendReply, err)
+		return fmt.Errorf("%w: %w", controllers.ErrSendReply, err)
 	}
 
 	return nil

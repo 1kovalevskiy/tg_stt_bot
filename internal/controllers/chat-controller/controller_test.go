@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/1kovalevskiy/tg_stt_bot/internal/controllers"
 	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 )
 
@@ -234,8 +235,8 @@ func TestHandleVoice_DownloadError(t *testing.T) {
 	controller := NewController(telegram, stt)
 
 	err := controller.HandleVoice(context.Background(), testAudio())
-	if !errors.Is(err, ErrDownloadAudio) {
-		t.Fatalf("HandleVoice() error = %v, want errors.Is ErrDownloadAudio", err)
+	if !errors.Is(err, controllers.ErrDownloadAudio) {
+		t.Fatalf("HandleVoice() error = %v, want errors.Is controllers.ErrDownloadAudio", err)
 	}
 
 	if !errors.Is(err, downloadErr) {
@@ -258,8 +259,8 @@ func TestHandleVoice_TranscribeError(t *testing.T) {
 	controller := NewController(telegram, stt)
 
 	err := controller.HandleVoice(context.Background(), testAudio())
-	if !errors.Is(err, ErrTranscribeAudio) {
-		t.Fatalf("HandleVoice() error = %v, want errors.Is ErrTranscribeAudio", err)
+	if !errors.Is(err, controllers.ErrTranscribeAudio) {
+		t.Fatalf("HandleVoice() error = %v, want errors.Is controllers.ErrTranscribeAudio", err)
 	}
 
 	if !errors.Is(err, sttErr) {
@@ -283,8 +284,8 @@ func TestHandleVoice_ReplyError(t *testing.T) {
 	controller := NewController(telegram, stt)
 
 	err := controller.HandleVoice(context.Background(), testAudio())
-	if !errors.Is(err, ErrSendReply) {
-		t.Fatalf("HandleVoice() error = %v, want errors.Is ErrSendReply", err)
+	if !errors.Is(err, controllers.ErrSendReply) {
+		t.Fatalf("HandleVoice() error = %v, want errors.Is controllers.ErrSendReply", err)
 	}
 
 	if !errors.Is(err, replyErr) {
@@ -301,11 +302,11 @@ func TestHandleVoice_TranscribeAndReplyErrorsAreJoined(t *testing.T) {
 	controller := NewController(telegram, stt)
 
 	err := controller.HandleVoice(context.Background(), testAudio())
-	if !errors.Is(err, ErrTranscribeAudio) {
-		t.Errorf("HandleVoice() error = %v, want errors.Is ErrTranscribeAudio", err)
+	if !errors.Is(err, controllers.ErrTranscribeAudio) {
+		t.Errorf("HandleVoice() error = %v, want errors.Is controllers.ErrTranscribeAudio", err)
 	}
 
-	if !errors.Is(err, ErrSendReply) {
-		t.Errorf("HandleVoice() error = %v, want errors.Is ErrSendReply", err)
+	if !errors.Is(err, controllers.ErrSendReply) {
+		t.Errorf("HandleVoice() error = %v, want errors.Is controllers.ErrSendReply", err)
 	}
 }

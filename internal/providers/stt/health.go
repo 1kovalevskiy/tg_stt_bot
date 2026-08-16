@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/1kovalevskiy/tg_stt_bot/internal/providers"
 )
 
 // healthPath is the parakeet health endpoint.
@@ -15,7 +17,7 @@ const healthPath = "/health"
 func (p *Provider) Health(ctx context.Context) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+healthPath, nil)
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrBuildRequest, err)
+		return "", fmt.Errorf("%w: %w", providers.ErrSTTBuildRequest, err)
 	}
 
 	body, err := p.doRequest(req)

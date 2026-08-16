@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/1kovalevskiy/tg_stt_bot/internal/providers"
 )
 
 // recordedRequest captures what the fake STT server received.
@@ -154,8 +156,8 @@ func TestTranscribe_HTTPErrorWithOpenAIEnvelope(t *testing.T) {
 		t.Fatal("Transcribe() expected error, got nil")
 	}
 
-	if !errors.Is(err, ErrUnexpectedStatus) {
-		t.Errorf("Transcribe() error = %v, want errors.Is ErrUnexpectedStatus", err)
+	if !errors.Is(err, providers.ErrSTTUnexpectedStatus) {
+		t.Errorf("Transcribe() error = %v, want errors.Is providers.ErrSTTUnexpectedStatus", err)
 	}
 
 	if !strings.Contains(err.Error(), "unsupported audio format") {
@@ -180,8 +182,8 @@ func TestTranscribe_HTTPErrorWithoutEnvelope(t *testing.T) {
 	provider := NewProvider(server.URL, "", server.Client())
 
 	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
-	if !errors.Is(err, ErrUnexpectedStatus) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is ErrUnexpectedStatus", err)
+	if !errors.Is(err, providers.ErrSTTUnexpectedStatus) {
+		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTUnexpectedStatus", err)
 	}
 
 	if !strings.Contains(err.Error(), "boom") {
@@ -210,8 +212,8 @@ func TestTranscribe_ContextDeadline(t *testing.T) {
 		t.Fatal("Transcribe() expected error, got nil")
 	}
 
-	if !errors.Is(err, ErrRequestTimeout) {
-		t.Errorf("Transcribe() error = %v, want errors.Is ErrRequestTimeout", err)
+	if !errors.Is(err, providers.ErrSTTRequestTimeout) {
+		t.Errorf("Transcribe() error = %v, want errors.Is providers.ErrSTTRequestTimeout", err)
 	}
 
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -231,8 +233,8 @@ func TestTranscribe_ContextCanceled(t *testing.T) {
 	cancel()
 
 	_, err := provider.Transcribe(ctx, strings.NewReader("audio"), "voice.ogg")
-	if !errors.Is(err, ErrRequestTimeout) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is ErrRequestTimeout", err)
+	if !errors.Is(err, providers.ErrSTTRequestTimeout) {
+		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTRequestTimeout", err)
 	}
 
 	if !errors.Is(err, context.Canceled) {
@@ -251,8 +253,8 @@ func TestTranscribe_InvalidJSONResponse(t *testing.T) {
 	provider := NewProvider(server.URL, "", server.Client())
 
 	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
-	if !errors.Is(err, ErrInvalidResponse) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is ErrInvalidResponse", err)
+	if !errors.Is(err, providers.ErrSTTInvalidResponse) {
+		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTInvalidResponse", err)
 	}
 }
 
@@ -263,7 +265,7 @@ func TestTranscribe_ServiceUnavailable(t *testing.T) {
 	provider := NewProvider(server.URL, "", &http.Client{})
 
 	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
-	if !errors.Is(err, ErrServiceUnavailable) {
-		t.Fatalf("Transcribe() error = %v, want errors.Is ErrServiceUnavailable", err)
+	if !errors.Is(err, providers.ErrSTTServiceUnavailable) {
+		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTServiceUnavailable", err)
 	}
 }

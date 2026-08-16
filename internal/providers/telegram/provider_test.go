@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/1kovalevskiy/tg_stt_bot/internal/providers"
 	"github.com/go-telegram/bot"
 	tgmodels "github.com/go-telegram/bot/models"
 )
@@ -120,8 +121,8 @@ func TestDownloadFile_GetFileError(t *testing.T) {
 	provider := NewProvider(api, testToken, &fakeDoer{})
 
 	_, err := provider.DownloadFile(context.Background(), "file-1")
-	if !errors.Is(err, ErrGetFile) {
-		t.Fatalf("DownloadFile() error = %v, want errors.Is ErrGetFile", err)
+	if !errors.Is(err, providers.ErrTelegramGetFile) {
+		t.Fatalf("DownloadFile() error = %v, want errors.Is providers.ErrTelegramGetFile", err)
 	}
 
 	if strings.Contains(err.Error(), testToken) {
@@ -138,8 +139,8 @@ func TestDownloadFile_EmptyFilePath(t *testing.T) {
 	provider := NewProvider(api, testToken, &fakeDoer{})
 
 	_, err := provider.DownloadFile(context.Background(), "file-1")
-	if !errors.Is(err, ErrEmptyFilePath) {
-		t.Fatalf("DownloadFile() error = %v, want errors.Is ErrEmptyFilePath", err)
+	if !errors.Is(err, providers.ErrTelegramEmptyFilePath) {
+		t.Fatalf("DownloadFile() error = %v, want errors.Is providers.ErrTelegramEmptyFilePath", err)
 	}
 }
 
@@ -153,8 +154,8 @@ func TestDownloadFile_HTTPError(t *testing.T) {
 	provider := NewProvider(api, testToken, doer)
 
 	_, err := provider.DownloadFile(context.Background(), "file-1")
-	if !errors.Is(err, ErrDownloadFailed) {
-		t.Fatalf("DownloadFile() error = %v, want errors.Is ErrDownloadFailed", err)
+	if !errors.Is(err, providers.ErrTelegramDownloadFailed) {
+		t.Fatalf("DownloadFile() error = %v, want errors.Is providers.ErrTelegramDownloadFailed", err)
 	}
 
 	if strings.Contains(err.Error(), testToken) {
@@ -171,8 +172,8 @@ func TestDownloadFile_UnexpectedStatus(t *testing.T) {
 	provider := NewProvider(api, testToken, doer)
 
 	_, err := provider.DownloadFile(context.Background(), "file-1")
-	if !errors.Is(err, ErrUnexpectedStatus) {
-		t.Fatalf("DownloadFile() error = %v, want errors.Is ErrUnexpectedStatus", err)
+	if !errors.Is(err, providers.ErrTelegramUnexpectedStatus) {
+		t.Fatalf("DownloadFile() error = %v, want errors.Is providers.ErrTelegramUnexpectedStatus", err)
 	}
 
 	if !strings.Contains(err.Error(), "404") {
@@ -217,8 +218,8 @@ func TestSendMessage_Error(t *testing.T) {
 	provider := NewProvider(api, testToken, &fakeDoer{})
 
 	err := provider.SendMessage(context.Background(), 42, "hello")
-	if !errors.Is(err, ErrSendMessage) {
-		t.Fatalf("SendMessage() error = %v, want errors.Is ErrSendMessage", err)
+	if !errors.Is(err, providers.ErrTelegramSendMessage) {
+		t.Fatalf("SendMessage() error = %v, want errors.Is providers.ErrTelegramSendMessage", err)
 	}
 
 	if strings.Contains(err.Error(), testToken) {
@@ -265,8 +266,8 @@ func TestSendReply_Error(t *testing.T) {
 	provider := NewProvider(api, testToken, &fakeDoer{})
 
 	err := provider.SendReply(context.Background(), 42, 777, "transcript")
-	if !errors.Is(err, ErrSendMessage) {
-		t.Fatalf("SendReply() error = %v, want errors.Is ErrSendMessage", err)
+	if !errors.Is(err, providers.ErrTelegramSendMessage) {
+		t.Fatalf("SendReply() error = %v, want errors.Is providers.ErrTelegramSendMessage", err)
 	}
 
 	if !strings.Contains(err.Error(), "chat not found") {

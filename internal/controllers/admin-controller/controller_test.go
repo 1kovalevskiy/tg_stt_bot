@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/1kovalevskiy/tg_stt_bot/internal/controllers"
 )
 
 // sentMessage records a single SendMessage call.
@@ -81,8 +83,8 @@ func TestHandleCommand_StatusDeadSTT(t *testing.T) {
 	controller := NewController(telegram, stt, &fakeConfig{})
 
 	err := controller.HandleCommand(context.Background(), adminChatID, "/status")
-	if !errors.Is(err, ErrSTTHealth) {
-		t.Fatalf("HandleCommand() error = %v, want errors.Is ErrSTTHealth", err)
+	if !errors.Is(err, controllers.ErrSTTHealth) {
+		t.Fatalf("HandleCommand() error = %v, want errors.Is controllers.ErrSTTHealth", err)
 	}
 
 	if !errors.Is(err, healthErr) {
@@ -102,12 +104,12 @@ func TestHandleCommand_StatusSendErrorIsJoined(t *testing.T) {
 	controller := NewController(telegram, stt, &fakeConfig{})
 
 	err := controller.HandleCommand(context.Background(), adminChatID, "/status")
-	if !errors.Is(err, ErrSTTHealth) {
-		t.Errorf("HandleCommand() error = %v, want errors.Is ErrSTTHealth", err)
+	if !errors.Is(err, controllers.ErrSTTHealth) {
+		t.Errorf("HandleCommand() error = %v, want errors.Is controllers.ErrSTTHealth", err)
 	}
 
-	if !errors.Is(err, ErrSendMessage) {
-		t.Errorf("HandleCommand() error = %v, want errors.Is ErrSendMessage", err)
+	if !errors.Is(err, controllers.ErrSendMessage) {
+		t.Errorf("HandleCommand() error = %v, want errors.Is controllers.ErrSendMessage", err)
 	}
 
 	if !errors.Is(err, sendErr) {
@@ -153,8 +155,8 @@ func TestHandleCommand_ChatsSendError(t *testing.T) {
 	controller := NewController(telegram, &fakeSTT{}, &fakeConfig{allowed: []int64{7}})
 
 	err := controller.HandleCommand(context.Background(), adminChatID, "/chats")
-	if !errors.Is(err, ErrSendMessage) {
-		t.Fatalf("HandleCommand() error = %v, want errors.Is ErrSendMessage", err)
+	if !errors.Is(err, controllers.ErrSendMessage) {
+		t.Fatalf("HandleCommand() error = %v, want errors.Is controllers.ErrSendMessage", err)
 	}
 
 	if !errors.Is(err, sendErr) {

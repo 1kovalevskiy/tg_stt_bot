@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/1kovalevskiy/tg_stt_bot/internal/providers"
 )
 
 func TestHealth_Success(t *testing.T) {
@@ -55,8 +57,8 @@ func TestHealth_UnexpectedStatus(t *testing.T) {
 	provider := NewProvider(server.URL, "", server.Client())
 
 	_, err := provider.Health(context.Background())
-	if !errors.Is(err, ErrUnexpectedStatus) {
-		t.Fatalf("Health() error = %v, want errors.Is ErrUnexpectedStatus", err)
+	if !errors.Is(err, providers.ErrSTTUnexpectedStatus) {
+		t.Fatalf("Health() error = %v, want errors.Is providers.ErrSTTUnexpectedStatus", err)
 	}
 
 	if !strings.Contains(err.Error(), "503") {
@@ -75,7 +77,7 @@ func TestHealth_ServiceUnavailable(t *testing.T) {
 	provider := NewProvider(server.URL, "", &http.Client{})
 
 	_, err := provider.Health(context.Background())
-	if !errors.Is(err, ErrServiceUnavailable) {
-		t.Fatalf("Health() error = %v, want errors.Is ErrServiceUnavailable", err)
+	if !errors.Is(err, providers.ErrSTTServiceUnavailable) {
+		t.Fatalf("Health() error = %v, want errors.Is providers.ErrSTTServiceUnavailable", err)
 	}
 }

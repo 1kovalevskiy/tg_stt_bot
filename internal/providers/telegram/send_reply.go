@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 
+	"github.com/1kovalevskiy/tg_stt_bot/internal/providers"
 	"github.com/go-telegram/bot"
 	tgmodels "github.com/go-telegram/bot/models"
 )
@@ -21,7 +22,7 @@ func (p *Provider) SendReply(ctx context.Context, chatID int64, replyToMessageID
 		},
 	})
 	if err != nil {
-		return p.wrapRedacted(ErrSendMessage, err)
+		return p.wrapRedacted(providers.ErrTelegramSendMessage, err)
 	}
 
 	return nil

@@ -8,6 +8,8 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+
+	"github.com/1kovalevskiy/tg_stt_bot/internal/providers"
 )
 
 // transcriptionsPath is the OpenAI-compatible transcription endpoint.
@@ -26,7 +28,7 @@ func (p *Provider) Transcribe(ctx context.Context, audio io.Reader, filename str
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+transcriptionsPath, body)
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrBuildRequest, err)
+		return "", fmt.Errorf("%w: %w", providers.ErrSTTBuildRequest, err)
 	}
 
 	req.Header.Set("Content-Type", contentType)
@@ -41,7 +43,7 @@ func (p *Provider) Transcribe(ctx context.Context, audio io.Reader, filename str
 	}
 
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrInvalidResponse, err)
+		return "", fmt.Errorf("%w: %w", providers.ErrSTTInvalidResponse, err)
 	}
 
 	return parsed.Text, nil
@@ -54,21 +56,21 @@ func writeMultipartBody(dst io.Writer, audio io.Reader, filename, language strin
 
 	part, err := writer.CreateFormFile("file", filename)
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrBuildRequest, err)
+		return "", fmt.Errorf("%w: %w", providers.ErrSTTBuildRequest, err)
 	}
 
 	if _, err := io.Copy(part, audio); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrBuildRequest, err)
+		return "", fmt.Errorf("%w: %w", providers.ErrSTTBuildRequest, err)
 	}
 
 	if language != "" {
 		if err := writer.WriteField("language", language); err != nil {
-			return "", fmt.Errorf("%w: %w", ErrBuildRequest, err)
+			return "", fmt.Errorf("%w: %w", providers.ErrSTTBuildRequest, err)
 		}
 	}
 
 	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrBuildRequest, err)
+		return "", fmt.Errorf("%w: %w", providers.ErrSTTBuildRequest, err)
 	}
 
 	return writer.FormDataContentType(), nil
