@@ -1,0 +1,10 @@
+{
+  "app": { "log_level": "INFO" },
+  "telegram": {
+    "token": "0000000000:PLACEHOLDER",
+    "admin_id": 0,
+    "service_chat_id": 0,
+    "allowed_chats": []
+  },
+  "stt": { "base_url": "http://stt.stt.svc.cluster.local", "language": "", "timeout": "120s" }
+}
