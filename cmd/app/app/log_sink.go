@@ -2,10 +2,11 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"log/slog"
 	"os"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -19,8 +20,18 @@ const (
 	serviceChatQueueSize = 64
 	// serviceChatSendTimeout bounds a single delivery attempt.
 	serviceChatSendTimeout = 15 * time.Second
-	// serviceChatDrainTimeout bounds the queue drain on shutdown.
-	serviceChatDrainTimeout = 5 * time.Second
+	// serviceChatDrainTimeout bounds the queue drain on shutdown. It has to
+	// exceed a single send timeout, otherwise Close reports a failure for a
+	// delivery that is still perfectly on time.
+	serviceChatDrainTimeout = serviceChatSendTimeout + 5*time.Second
+	// serviceChatRateWindow and serviceChatRateBurst cap how many records may
+	// be delivered per window: a repeating failure would otherwise turn into
+	// one Telegram message per occurrence, flooding the chat and burning the
+	// send quota shared with user replies.
+	serviceChatRateWindow = time.Minute
+	serviceChatRateBurst  = 10
+	// msgSuppressedFormat reports how many records the rate limit dropped.
+	msgSuppressedFormat = "%d error records suppressed by the service chat rate limit"
 )
 
 type (
@@ -41,18 +52,23 @@ type (
 		// purpose: routing them through slog would feed them back into this
 		// sink and recurse.
 		errLog *log.Logger
+		// drainTimeout bounds the drain in Close. It is a field so tests can
+		// drive the timeout branch without waiting out a real send.
+		drainTimeout time.Duration
 
 		mu     sync.RWMutex
 		closed bool
+
+		// Rate limiting state, owned by the run goroutine alone.
+		windowStart time.Time
+		windowSent  int
+		suppressed  int
 	}
 
-	// serviceChatHandler is a slog handler that writes every record to the
-	// wrapped handler and additionally mirrors ERROR records to the sink.
-	serviceChatHandler struct {
-		inner  slog.Handler
-		sink   *serviceChatSink
-		attrs  []string
-		groups []string
+	// fanOutHandler writes every record to all the handlers it wraps: the base
+	// stdout handler and the ERROR-only handler mirroring into the service chat.
+	fanOutHandler struct {
+		handlers []slog.Handler
 	}
 )
 
@@ -68,16 +84,28 @@ func newServiceChatSink(sender serviceChatSender, chatID int64, queueSize int, e
 	}
 
 	sink := &serviceChatSink{
-		sender: sender,
-		chatID: chatID,
-		queue:  make(chan string, queueSize),
-		done:   make(chan struct{}),
-		errLog: errLog,
+		sender:       sender,
+		chatID:       chatID,
+		queue:        make(chan string, queueSize),
+		done:         make(chan struct{}),
+		errLog:       errLog,
+		drainTimeout: serviceChatDrainTimeout,
 	}
 
 	go sink.run()
 
 	return sink
+}
+
+// Write makes the sink an io.Writer, so a standard slog handler can render the
+// records mirrored to the service chat. It never fails: a delivery problem is
+// reported to the sink's own error log, not back to the logging caller.
+func (s *serviceChatSink) Write(record []byte) (int, error) {
+	text := strings.TrimRight(string(record), "\n")
+
+	s.send(models.TruncateText(text, models.TelegramMessageLimit))
+
+	return len(record), nil
 }
 
 // send queues text for delivery without ever blocking the caller: an overflow
@@ -119,18 +147,57 @@ func (s *serviceChatSink) Close() error {
 	select {
 	case <-s.done:
 		return nil
-	case <-time.After(serviceChatDrainTimeout):
+	case <-time.After(s.drainTimeout):
 		return ErrLogSinkDrainTimeout
 	}
 }
 
-// run delivers queued records until the queue is closed and drained.
+// run delivers queued records until the queue is closed and drained, dropping
+// everything above the rate limit.
 func (s *serviceChatSink) run() {
 	defer close(s.done)
 
 	for text := range s.queue {
+		s.rotateWindow(time.Now())
+
+		if s.windowSent >= serviceChatRateBurst {
+			s.suppressed++
+
+			continue
+		}
+
+		s.windowSent++
 		s.deliver(text)
 	}
+
+	s.reportSuppressed()
+}
+
+// rotateWindow starts a new rate window once the current one has expired,
+// reporting what the expired one had to drop.
+func (s *serviceChatSink) rotateWindow(now time.Time) {
+	if !s.windowStart.IsZero() && now.Sub(s.windowStart) < serviceChatRateWindow {
+		return
+	}
+
+	s.reportSuppressed()
+
+	s.windowStart = now
+	s.windowSent = 0
+}
+
+// reportSuppressed sends a summary of the records the rate limit dropped. The
+// summary itself bypasses the limit: it is at most one message per window and
+// is the only trace those records leave in the chat.
+func (s *serviceChatSink) reportSuppressed() {
+	if s.suppressed == 0 {
+		return
+	}
+
+	count := s.suppressed
+	s.suppressed = 0
+
+	s.deliver(fmt.Sprintf(msgSuppressedFormat, count))
 }
 
 // deliver sends a single record to the service chat.
@@ -143,134 +210,85 @@ func (s *serviceChatSink) deliver(text string) {
 	}
 }
 
-// newServiceChatHandler wraps inner so that ERROR records are also sent to sink.
-func newServiceChatHandler(inner slog.Handler, sink *serviceChatSink) *serviceChatHandler {
-	return &serviceChatHandler{inner: inner, sink: sink}
+// newServiceChatMirror renders ERROR records as plain text into the sink.
+// Rendering is left to the standard text handler; only the timestamp is
+// dropped, because Telegram stamps every message on its own.
+func newServiceChatMirror(sink *serviceChatSink) slog.Handler {
+	return slog.NewTextHandler(sink, &slog.HandlerOptions{
+		Level: slog.LevelError,
+		ReplaceAttr: func(groups []string, attr slog.Attr) slog.Attr {
+			if len(groups) == 0 && attr.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+
+			return attr
+		},
+	})
 }
 
-// Enabled reports whether a record of the given level is handled. ERROR
-// records are always handled, even if the configured level is higher.
-func (h *serviceChatHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	return level >= slog.LevelError || h.inner.Enabled(ctx, level)
+// newFanOutHandler builds a handler writing every record to all handlers.
+func newFanOutHandler(handlers ...slog.Handler) *fanOutHandler {
+	return &fanOutHandler{handlers: handlers}
 }
 
-// Handle writes the record to the wrapped handler and mirrors ERROR records
-// to the service chat.
-func (h *serviceChatHandler) Handle(ctx context.Context, record slog.Record) error {
-	var err error
-
-	if h.inner.Enabled(ctx, record.Level) {
-		err = h.inner.Handle(ctx, record)
+// Enabled reports whether any of the wrapped handlers takes the level: the
+// service chat handler accepts ERROR even when stdout is configured higher.
+func (h *fanOutHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	for _, handler := range h.handlers {
+		if handler.Enabled(ctx, level) {
+			return true
+		}
 	}
 
-	if record.Level >= slog.LevelError {
-		h.sink.send(h.format(record))
-	}
-
-	return err
+	return false
 }
 
-// WithAttrs delegates to the wrapped handler and keeps the attributes for the
-// service chat message as well.
-func (h *serviceChatHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+// Handle writes the record to every wrapped handler that takes its level.
+func (h *fanOutHandler) Handle(ctx context.Context, record slog.Record) error {
+	var handleErr error
+
+	for _, handler := range h.handlers {
+		if !handler.Enabled(ctx, record.Level) {
+			continue
+		}
+
+		if err := handler.Handle(ctx, record.Clone()); err != nil {
+			handleErr = errors.Join(handleErr, err)
+		}
+	}
+
+	return handleErr
+}
+
+// WithAttrs delegates to every wrapped handler.
+func (h *fanOutHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	if len(attrs) == 0 {
 		return h
 	}
 
-	clone := h.clone()
-	clone.inner = h.inner.WithAttrs(attrs)
-
-	prefix := strings.Join(h.groups, ".")
-	for _, attr := range attrs {
-		clone.attrs = append(clone.attrs, formatAttr(prefix, attr)...)
-	}
-
-	return clone
+	return newFanOutHandler(h.derive(func(handler slog.Handler) slog.Handler {
+		return handler.WithAttrs(attrs)
+	})...)
 }
 
-// WithGroup delegates to the wrapped handler and qualifies the keys of the
-// service chat message with the group name.
-func (h *serviceChatHandler) WithGroup(name string) slog.Handler {
+// WithGroup delegates to every wrapped handler.
+func (h *fanOutHandler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
 
-	clone := h.clone()
-	clone.inner = h.inner.WithGroup(name)
-	clone.groups = append(clone.groups, name)
-
-	return clone
+	return newFanOutHandler(h.derive(func(handler slog.Handler) slog.Handler {
+		return handler.WithGroup(name)
+	})...)
 }
 
-// clone copies the handler with its own attribute and group slices.
-func (h *serviceChatHandler) clone() *serviceChatHandler {
-	return &serviceChatHandler{
-		inner:  h.inner,
-		sink:   h.sink,
-		attrs:  slices.Clone(h.attrs),
-		groups: slices.Clone(h.groups),
-	}
-}
+// derive applies fn to every wrapped handler.
+func (h *fanOutHandler) derive(fn func(slog.Handler) slog.Handler) []slog.Handler {
+	derived := make([]slog.Handler, 0, len(h.handlers))
 
-// format renders a record as a plain text message for the service chat,
-// truncated to a single Telegram message.
-func (h *serviceChatHandler) format(record slog.Record) string {
-	parts := make([]string, 0, len(h.attrs)+record.NumAttrs()+1)
-	parts = append(parts, record.Level.String()+": "+record.Message)
-	parts = append(parts, h.attrs...)
-
-	prefix := strings.Join(h.groups, ".")
-
-	record.Attrs(func(attr slog.Attr) bool {
-		parts = append(parts, formatAttr(prefix, attr)...)
-
-		return true
-	})
-
-	return truncateForTelegram(strings.Join(parts, " "))
-}
-
-// formatAttr renders an attribute as "key=value" pairs, flattening groups and
-// qualifying keys with the prefix of the enclosing groups.
-func formatAttr(prefix string, attr slog.Attr) []string {
-	attr.Value = attr.Value.Resolve()
-
-	if attr.Value.Kind() == slog.KindGroup {
-		group := attr.Value.Group()
-		if attr.Key != "" {
-			prefix = joinKey(prefix, attr.Key)
-		}
-
-		pairs := make([]string, 0, len(group))
-		for _, sub := range group {
-			pairs = append(pairs, formatAttr(prefix, sub)...)
-		}
-
-		return pairs
+	for _, handler := range h.handlers {
+		derived = append(derived, fn(handler))
 	}
 
-	if attr.Equal(slog.Attr{}) {
-		return nil
-	}
-
-	return []string{joinKey(prefix, attr.Key) + "=" + attr.Value.String()}
-}
-
-// joinKey qualifies key with the group prefix.
-func joinKey(prefix, key string) string {
-	if prefix == "" {
-		return key
-	}
-
-	return prefix + "." + key
-}
-
-// truncateForTelegram cuts text down to a single Telegram message.
-func truncateForTelegram(text string) string {
-	chunks := models.SplitText(text, models.TelegramMessageLimit)
-	if len(chunks) == 0 {
-		return ""
-	}
-
-	return chunks[0]
+	return derived
 }

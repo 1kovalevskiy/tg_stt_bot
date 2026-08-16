@@ -1,4 +1,4 @@
-package config
+package configs
 
 import (
 	"errors"
@@ -19,6 +19,39 @@ const validConfigJSON = `{
   "stt": { "base_url": "http://stt.local:5092/", "language": "ru", "timeout": "30s" }
 }`
 
+// configEnvVars is every variable the config reads.
+var configEnvVars = []string{
+	"APP_LOG_LEVEL",
+	"TELEGRAM_TOKEN",
+	"TELEGRAM_ADMIN_ID",
+	"TELEGRAM_SERVICE_CHAT_ID",
+	"TELEGRAM_ALLOWED_CHATS",
+	"TELEGRAM_API_TIMEOUT",
+	"TELEGRAM_DOWNLOAD_TIMEOUT",
+	"STT_BASE_URL",
+	"STT_LANGUAGE",
+	"STT_TIMEOUT",
+}
+
+// clearConfigEnv makes the environment empty for the duration of the test.
+// cleanenv reads the real process environment, so an ambient TELEGRAM_ADMIN_ID
+// would not just break these tests: it would also mask a broken json tag by
+// filling the field from somewhere else.
+func clearConfigEnv(t *testing.T) {
+	t.Helper()
+
+	for _, name := range configEnvVars {
+		// t.Setenv registers the restore; Unsetenv then makes the variable
+		// actually absent, which an empty value would not be — cleanenv
+		// applies anything that is merely set.
+		t.Setenv(name, "")
+
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("unset %s: %v", name, err)
+		}
+	}
+}
+
 func writeConfigFile(t *testing.T, content string) string {
 	t.Helper()
 
@@ -31,6 +64,8 @@ func writeConfigFile(t *testing.T, content string) string {
 }
 
 func TestNewConfig_ValidFile(t *testing.T) {
+	clearConfigEnv(t)
+
 	path := writeConfigFile(t, validConfigJSON)
 
 	cfg, err := NewConfig(path)
@@ -73,6 +108,8 @@ func TestNewConfig_ValidFile(t *testing.T) {
 }
 
 func TestNewConfig_EnvOverrides(t *testing.T) {
+	clearConfigEnv(t)
+
 	path := writeConfigFile(t, validConfigJSON)
 
 	t.Setenv("APP_LOG_LEVEL", "debug")
@@ -124,6 +161,8 @@ func TestNewConfig_EnvOverrides(t *testing.T) {
 }
 
 func TestNewConfig_MissingFile(t *testing.T) {
+	clearConfigEnv(t)
+
 	_, err := NewConfig(filepath.Join(t.TempDir(), "missing.json"))
 	if !errors.Is(err, ErrReadConfig) {
 		t.Fatalf("NewConfig() error = %v, want ErrReadConfig", err)
@@ -131,6 +170,8 @@ func TestNewConfig_MissingFile(t *testing.T) {
 }
 
 func TestNewConfig_InvalidConfigReturnsValidationError(t *testing.T) {
+	clearConfigEnv(t)
+
 	path := writeConfigFile(t, `{
   "app": { "log_level": "INFO" },
   "telegram": { "token": "", "admin_id": 1, "service_chat_id": 2, "allowed_chats": [] },
@@ -267,5 +308,94 @@ func validConfigForValidation() *Config {
 			BaseURL: "http://stt.local:5092",
 			Timeout: "120s",
 		},
+	}
+}
+
+// TestNewConfig_TimeoutsFromFile pins the json tags of the two timeout
+// settings: they were only ever covered through their env defaults, so a
+// typo'd tag would have gone unnoticed.
+func TestNewConfig_TimeoutsFromFile(t *testing.T) {
+	clearConfigEnv(t)
+
+	path := writeConfigFile(t, `{
+  "app": { "log_level": "info" },
+  "telegram": {
+    "token": "12345:TEST_TOKEN",
+    "admin_id": 100,
+    "service_chat_id": -200,
+    "allowed_chats": [-1001],
+    "api_timeout": "7s",
+    "download_timeout": "3m"
+  },
+  "stt": { "base_url": "http://stt.local:5092", "language": "ru", "timeout": "11s" }
+}`)
+
+	cfg, err := NewConfig(path)
+	if err != nil {
+		t.Fatalf("NewConfig() unexpected error: %v", err)
+	}
+
+	if got := cfg.GetTelegramAPITimeout(); got != 7*time.Second {
+		t.Errorf("GetTelegramAPITimeout() = %v, want %v", got, 7*time.Second)
+	}
+
+	if got := cfg.GetTelegramDownloadTimeout(); got != 3*time.Minute {
+		t.Errorf("GetTelegramDownloadTimeout() = %v, want %v", got, 3*time.Minute)
+	}
+
+	if got := cfg.GetSTTTimeout(); got != 11*time.Second {
+		t.Errorf("GetSTTTimeout() = %v, want %v", got, 11*time.Second)
+	}
+}
+
+// TestNewConfig_IsNotAffectedByAmbientEnv guards the hermetic setup itself.
+func TestNewConfig_IsNotAffectedByAmbientEnv(t *testing.T) {
+	clearConfigEnv(t)
+
+	path := writeConfigFile(t, validConfigJSON)
+
+	t.Setenv("STT_LANGUAGE", "de")
+	t.Setenv("TELEGRAM_ADMIN_ID", "999")
+
+	cfg, err := NewConfig(path)
+	if err != nil {
+		t.Fatalf("NewConfig() unexpected error: %v", err)
+	}
+
+	// The environment wins over the file: that is the documented precedence.
+	if got := cfg.GetSTTLanguage(); got != "de" {
+		t.Errorf("GetSTTLanguage() = %q, want the env value %q", got, "de")
+	}
+
+	if got := cfg.GetTelegramAdminID(); got != 999 {
+		t.Errorf("GetTelegramAdminID() = %d, want the env value %d", got, 999)
+	}
+}
+
+func TestValidateConfig_CachesParsedTimeouts(t *testing.T) {
+	t.Parallel()
+
+	cfg := validConfigForValidation()
+
+	// Before validation nothing is parsed: the getters must not silently
+	// return a zero deadline, which would expire on the first call.
+	if got := cfg.GetSTTTimeout(); got != 0 {
+		t.Errorf("GetSTTTimeout() before validation = %v, want 0", got)
+	}
+
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("validateConfig() unexpected error: %v", err)
+	}
+
+	if got := cfg.GetSTTTimeout(); got != 120*time.Second {
+		t.Errorf("GetSTTTimeout() = %v, want %v", got, 120*time.Second)
+	}
+
+	if got := cfg.GetTelegramAPITimeout(); got != 30*time.Second {
+		t.Errorf("GetTelegramAPITimeout() = %v, want %v", got, 30*time.Second)
+	}
+
+	if got := cfg.GetTelegramDownloadTimeout(); got != 2*time.Minute {
+		t.Errorf("GetTelegramDownloadTimeout() = %v, want %v", got, 2*time.Minute)
 	}
 }

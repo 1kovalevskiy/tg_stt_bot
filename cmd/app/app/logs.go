@@ -46,7 +46,7 @@ func (a *App) initLogSink() error {
 	)
 
 	a.addCloser("service-chat-log-sink", sink.Close)
-	slog.SetDefault(slog.New(newServiceChatHandler(a.logHandler, sink)))
+	slog.SetDefault(slog.New(newFanOutHandler(a.logHandler, newServiceChatMirror(sink))))
 
 	return nil
 }

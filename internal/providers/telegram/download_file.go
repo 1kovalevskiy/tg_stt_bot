@@ -24,7 +24,10 @@ func (p *Provider) DownloadFile(ctx context.Context, fileID string) (io.ReadClos
 		return nil, err
 	}
 
-	if file.FilePath == "" {
+	// A nil file with a nil error is not something the Bot API promises, but
+	// the library types it as possible and dereferencing it here would take
+	// the whole process down: the update workers have no recover().
+	if file == nil || file.FilePath == "" {
 		return nil, providers.ErrTelegramEmptyFilePath
 	}
 

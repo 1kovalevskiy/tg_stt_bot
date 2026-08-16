@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 	"github.com/1kovalevskiy/tg_stt_bot/internal/providers"
 	"github.com/go-telegram/bot"
 	tgmodels "github.com/go-telegram/bot/models"
@@ -272,7 +273,7 @@ func TestDownloadFile_GetFileError(t *testing.T) {
 		t.Errorf("DownloadFile() error %q contains the bot token", err.Error())
 	}
 
-	if !strings.Contains(err.Error(), redactedToken) {
+	if !strings.Contains(err.Error(), models.RedactedToken) {
 		t.Errorf("DownloadFile() error %q does not contain the redaction marker", err.Error())
 	}
 
@@ -301,13 +302,33 @@ func TestDownloadFile_GetFileUsesAPITimeout(t *testing.T) {
 	}
 }
 
-func TestDownloadFile_EmptyFilePath(t *testing.T) {
-	api := &fakeBotAPI{getFileResult: &tgmodels.File{FileID: "file-1"}}
-	provider := newTestProvider(api, &fakeDoer{})
+func TestDownloadFile_NoUsableFile(t *testing.T) {
+	tests := []struct {
+		name string
+		file *tgmodels.File
+	}{
+		{name: "empty file path", file: &tgmodels.File{FileID: "file-1"}},
+		// getFile answering with neither a file nor an error is not something
+		// the Bot API promises, but the library types it as possible and a
+		// dereference here would panic the worker and kill the process.
+		{name: "nil file", file: nil},
+	}
 
-	_, err := provider.DownloadFile(context.Background(), "file-1")
-	if !errors.Is(err, providers.ErrTelegramEmptyFilePath) {
-		t.Fatalf("DownloadFile() error = %v, want errors.Is providers.ErrTelegramEmptyFilePath", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := &fakeBotAPI{getFileResult: tt.file}
+			doer := &fakeDoer{}
+			provider := newTestProvider(api, doer)
+
+			_, err := provider.DownloadFile(context.Background(), "file-1")
+			if !errors.Is(err, providers.ErrTelegramEmptyFilePath) {
+				t.Fatalf("DownloadFile() error = %v, want errors.Is providers.ErrTelegramEmptyFilePath", err)
+			}
+
+			if doer.gotURL != "" {
+				t.Errorf("download requested %q, want no download attempt", doer.gotURL)
+			}
+		})
 	}
 }
 
@@ -489,7 +510,7 @@ func TestWrapRedacted_EmptyTokenLeavesMessageIntact(t *testing.T) {
 		t.Errorf("wrapRedacted() = %q, want it to contain the underlying message", err.Error())
 	}
 
-	if strings.Contains(err.Error(), redactedToken) {
+	if strings.Contains(err.Error(), models.RedactedToken) {
 		t.Errorf("wrapRedacted() = %q, want no redaction marker for an empty token", err.Error())
 	}
 }

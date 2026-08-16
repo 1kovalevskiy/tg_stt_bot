@@ -28,9 +28,16 @@ func (p *Provider) doRequest(req *http.Request) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	// One byte over the limit is read on purpose: a plain LimitReader would
+	// hand back a truncated body, which then fails as invalid JSON and hides
+	// the real problem.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", providers.ErrSTTReadResponse, err)
+	}
+
+	if len(body) > maxResponseSize {
+		return nil, fmt.Errorf("%w: over %d bytes", providers.ErrSTTResponseTooLarge, maxResponseSize)
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
@@ -40,15 +47,19 @@ func (p *Provider) doRequest(req *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-// wrapTransportError wraps a client.Do error into a layer error, folding
-// context cancellation and deadlines (including the configured timeout, which
-// is enforced through the request context) into providers.ErrSTTRequestTimeout.
+// wrapTransportError wraps a client.Do error into a layer error. A deadline
+// (the configured timeout is enforced through the request context) and a
+// cancellation by the caller are told apart: the latter is what a shutdown
+// looks like and must not be reported as a service failure.
 func wrapTransportError(err error) error {
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return fmt.Errorf("%w: %w", providers.ErrSTTRequestCanceled, err)
+	case errors.Is(err, context.DeadlineExceeded):
 		return fmt.Errorf("%w: %w", providers.ErrSTTRequestTimeout, err)
+	default:
+		return fmt.Errorf("%w: %w", providers.ErrSTTServiceUnavailable, err)
 	}
-
-	return fmt.Errorf("%w: %w", providers.ErrSTTServiceUnavailable, err)
 }
 
 // statusError builds a layer error for a non-2xx response, best-effort

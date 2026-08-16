@@ -1,10 +1,14 @@
 TOOLS_DIR ?= $(CURDIR)/bin
 CACHE_DIR ?= $(CURDIR)/.cache
-export HOME ?= $(abspath $(CACHE_DIR))/home
-export GOPATH ?= $(abspath $(CACHE_DIR))/gopath
-export GOMODCACHE ?= $(abspath $(CACHE_DIR))/gomod
-export GOCACHE ?= $(abspath $(CACHE_DIR))/go-build
-export GOLANGCI_LINT_CACHE ?= $(abspath $(CACHE_DIR))/golangci-lint
+
+# Caches are pinned inside the repository so lint, test and build never depend
+# on the developer's or the runner's home directory. `?=` would be a no-op for
+# anything already exported into the environment (HOME always is), hence `:=`.
+export HOME := $(abspath $(CACHE_DIR))/home
+export GOPATH := $(abspath $(CACHE_DIR))/gopath
+export GOMODCACHE := $(abspath $(CACHE_DIR))/gomod
+export GOCACHE := $(abspath $(CACHE_DIR))/go-build
+export GOLANGCI_LINT_CACHE := $(abspath $(CACHE_DIR))/golangci-lint
 export PATH := $(abspath $(TOOLS_DIR)):$(PATH)
 
 GOLANGCI_LINT_VERSION ?= v2.8.0
@@ -27,9 +31,11 @@ lint: .install-golangci-lint
 format:
 	@go fmt ./...
 
+# The bot runs a background delivery goroutine and several update workers, so
+# the suite runs under the race detector: a data race would otherwise ship green.
 .PHONY: test
 test:
-	@env HOME=$(CURDIR)/.cache/home GOPATH=$(CURDIR)/.cache/gopath GOMODCACHE=$(CURDIR)/.cache/gomod GOCACHE=$(CURDIR)/.cache/go-build go test -count=1 ./...
+	@go test -race -count=1 ./...
 
 .PHONY: build
 build:

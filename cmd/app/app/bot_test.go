@@ -209,8 +209,6 @@ func TestDispatcher_AdminCommand(t *testing.T) {
 }
 
 func TestDispatcher_CommandFromNonAdminIsIgnored(t *testing.T) {
-	d, _, admin := newTestDispatcher()
-
 	tests := []struct {
 		name   string
 		update *tgmodels.Update
@@ -221,6 +219,10 @@ func TestDispatcher_CommandFromNonAdminIsIgnored(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Own fakes per subtest: a shared dispatcher would accumulate
+			// calls and make the assertions depend on the subtest order.
+			d, _, admin := newTestDispatcher()
+
 			if d.matchAdminCommand(tt.update) {
 				t.Error("matchAdminCommand() = true, want false outside the admin private chat")
 			}
@@ -235,8 +237,6 @@ func TestDispatcher_CommandFromNonAdminIsIgnored(t *testing.T) {
 }
 
 func TestDispatcher_PlainTextFromAdminIsNotACommand(t *testing.T) {
-	d, _, admin := newTestDispatcher()
-
 	tests := []struct {
 		name string
 		text string
@@ -248,6 +248,7 @@ func TestDispatcher_PlainTextFromAdminIsNotACommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			d, _, admin := newTestDispatcher()
 			update := textUpdate(testAdminID, tt.text)
 
 			if d.matchAdminCommand(update) {
@@ -320,54 +321,27 @@ func TestDispatcher_ControllerErrorsAreSwallowed(t *testing.T) {
 	}
 }
 
-func TestRedactToken(t *testing.T) {
+func TestCommandName(t *testing.T) {
 	t.Parallel()
 
-	const token = "123456:AAHfake-token"
-
 	tests := []struct {
-		name    string
-		message string
-		token   string
-		want    string
+		name string
+		text string
+		want string
 	}{
-		{
-			name:    "token in url is redacted",
-			message: `Get "https://api.telegram.org/bot123456:AAHfake-token/getMe": timeout`,
-			token:   token,
-			want:    `Get "https://api.telegram.org/bot[REDACTED]/getMe": timeout`,
-		},
-		{
-			name:    "several occurrences",
-			message: token + " and " + token,
-			token:   token,
-			want:    "[REDACTED] and [REDACTED]",
-		},
-		{
-			name:    "no token in message",
-			message: "error call getMe, unauthorized",
-			token:   token,
-			want:    "error call getMe, unauthorized",
-		},
-		{
-			name:    "empty token leaves message intact",
-			message: "some error",
-			token:   "",
-			want:    "some error",
-		},
+		{name: "plain command", text: "/status", want: "/status"},
+		{name: "command with argument", text: "/chats -100500", want: "/chats"},
+		{name: "command addressed to the bot", text: "/status@my_bot", want: "/status"},
+		{name: "padded command", text: "  /chats  ", want: "/chats"},
+		{name: "empty text", text: "", want: ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := redactToken(tt.message, tt.token)
-			if got != tt.want {
-				t.Errorf("redactToken() = %q, want %q", got, tt.want)
-			}
-
-			if tt.token != "" && got != tt.want {
-				t.Errorf("redactToken() leaked the token: %q", got)
+			if got := commandName(tt.text); got != tt.want {
+				t.Errorf("commandName(%q) = %q, want %q", tt.text, got, tt.want)
 			}
 		})
 	}

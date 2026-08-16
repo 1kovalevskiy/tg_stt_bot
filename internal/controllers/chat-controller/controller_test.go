@@ -18,16 +18,18 @@ type sentReply struct {
 	text      string
 }
 
-// trackingBody is a ReadCloser that records whether Close was called.
+// trackingBody is a ReadCloser that records whether Close was called and can
+// fail on Close.
 type trackingBody struct {
 	io.Reader
-	closed bool
+	closed   bool
+	closeErr error
 }
 
 func (b *trackingBody) Close() error {
 	b.closed = true
 
-	return nil
+	return b.closeErr
 }
 
 // fakeTelegram is a hand-written fake of the telegramProvider interface.
@@ -36,8 +38,12 @@ type fakeTelegram struct {
 	gotFileIDs  []string
 	downloadErr error
 
-	replies  []sentReply
-	replyErr error
+	replies []sentReply
+	// replyCtxErrs is the state of the context each reply was sent with.
+	replyCtxErrs []error
+	replyErr     error
+	// replyErrFrom is how many replies succeed before replyErr starts firing.
+	replyErrFrom int
 }
 
 func newFakeTelegram(content string) *fakeTelegram {
@@ -53,9 +59,11 @@ func (f *fakeTelegram) DownloadFile(_ context.Context, fileID string) (io.ReadCl
 	return f.body, nil
 }
 
-func (f *fakeTelegram) SendReply(_ context.Context, chatID int64, replyToMessageID int, text string) error {
+func (f *fakeTelegram) SendReply(ctx context.Context, chatID int64, replyToMessageID int, text string) error {
 	f.replies = append(f.replies, sentReply{chatID: chatID, messageID: replyToMessageID, text: text})
-	if f.replyErr != nil {
+	f.replyCtxErrs = append(f.replyCtxErrs, ctx.Err())
+
+	if f.replyErr != nil && len(f.replies) > f.replyErrFrom {
 		return f.replyErr
 	}
 
@@ -308,5 +316,166 @@ func TestHandleVoice_TranscribeAndReplyErrorsAreJoined(t *testing.T) {
 
 	if !errors.Is(err, controllers.ErrSendReply) {
 		t.Errorf("HandleVoice() error = %v, want errors.Is controllers.ErrSendReply", err)
+	}
+}
+
+func TestHandleVoice_FileSizeBoundary(t *testing.T) {
+	tests := []struct {
+		name          string
+		fileSize      int64
+		wantTranscibe bool
+		wantReply     string
+	}{
+		{
+			name: "exactly at the limit is still served",
+			// getFile does serve a file of exactly this size.
+			fileSize:      maxFileSize,
+			wantTranscibe: true,
+			wantReply:     "привет мир",
+		},
+		{
+			// file_size is an optional Bot API field: a missing one must not
+			// be read as "empty file" and must not block the transcription.
+			name:          "unknown size is transcribed",
+			fileSize:      0,
+			wantTranscibe: true,
+			wantReply:     "привет мир",
+		},
+		{
+			name:          "one byte over the limit is rejected",
+			fileSize:      maxFileSize + 1,
+			wantTranscibe: false,
+			wantReply:     msgFileTooLarge,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			telegram := newFakeTelegram("audio-bytes")
+			stt := &fakeSTT{text: "привет мир"}
+			controller := NewController(telegram, stt)
+
+			audio := testAudio()
+			audio.FileSize = tt.fileSize
+
+			if err := controller.HandleVoice(context.Background(), audio); err != nil {
+				t.Fatalf("HandleVoice() unexpected error: %v", err)
+			}
+
+			if got := stt.calls > 0; got != tt.wantTranscibe {
+				t.Errorf("Transcribe called = %v, want %v for size %d", got, tt.wantTranscibe, tt.fileSize)
+			}
+
+			if len(telegram.replies) != 1 || telegram.replies[0].text != tt.wantReply {
+				t.Errorf("replies = %+v, want single %q reply", telegram.replies, tt.wantReply)
+			}
+		})
+	}
+}
+
+func TestHandleVoice_ChunkFailureNotifiesTheUser(t *testing.T) {
+	replyErr := errors.New("too many requests")
+	longText := strings.TrimSpace(strings.Repeat("слово ", 1000))
+
+	telegram := newFakeTelegram("audio-bytes")
+	telegram.replyErr = replyErr
+	// The first chunk goes through, the rest fail: Telegram rate-limits rapid
+	// multi-chunk sends.
+	telegram.replyErrFrom = 1
+	stt := &fakeSTT{text: longText}
+	controller := NewController(telegram, stt)
+
+	err := controller.HandleVoice(context.Background(), testAudio())
+	if !errors.Is(err, controllers.ErrSendReply) {
+		t.Fatalf("HandleVoice() error = %v, want errors.Is controllers.ErrSendReply", err)
+	}
+
+	if len(telegram.replies) < 3 {
+		t.Fatalf("SendReply called %d times, want the failed chunk and a failure notice", len(telegram.replies))
+	}
+
+	// A truncated transcript with no notice would look like the whole answer.
+	last := telegram.replies[len(telegram.replies)-1]
+	if last.text != msgTranscribeFailed {
+		t.Errorf("last reply = %q, want %q after a chunk failure", last.text, msgTranscribeFailed)
+	}
+}
+
+func TestHandleVoice_FailureNoticeSurvivesCanceledContext(t *testing.T) {
+	telegram := newFakeTelegram("audio-bytes")
+	stt := &fakeSTT{err: context.Canceled}
+	controller := NewController(telegram, stt)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := controller.HandleVoice(ctx, testAudio())
+	if !errors.Is(err, controllers.ErrTranscribeAudio) {
+		t.Fatalf("HandleVoice() error = %v, want errors.Is controllers.ErrTranscribeAudio", err)
+	}
+
+	if len(telegram.replies) != 1 || telegram.replies[0].text != msgTranscribeFailed {
+		t.Fatalf("replies = %+v, want single %q reply", telegram.replies, msgTranscribeFailed)
+	}
+
+	// On shutdown the incoming context is already canceled: reusing it would
+	// leave the user without any answer at all.
+	if telegram.replyCtxErrs[0] != nil {
+		t.Errorf("failure notice sent with context error %v, want a live context", telegram.replyCtxErrs[0])
+	}
+}
+
+func TestHandleVoice_CloseErrorDoesNotFailTheScenario(t *testing.T) {
+	telegram := newFakeTelegram("audio-bytes")
+	telegram.body.closeErr = errors.New("connection reset")
+	stt := &fakeSTT{text: "привет мир"}
+	controller := NewController(telegram, stt)
+
+	// The transcript is already sent when the body is closed: a close failure
+	// is logged, not turned into a user-visible error.
+	if err := controller.HandleVoice(context.Background(), testAudio()); err != nil {
+		t.Fatalf("HandleVoice() unexpected error: %v", err)
+	}
+
+	if !telegram.body.closed {
+		t.Error("downloaded file was not closed")
+	}
+
+	if len(telegram.replies) != 1 || telegram.replies[0].text != "привет мир" {
+		t.Errorf("replies = %+v, want the transcript delivered", telegram.replies)
+	}
+}
+
+func TestHandleVoice_ReplyErrorOnExpectedOutcomes(t *testing.T) {
+	replyErr := errors.New("chat not found")
+
+	tests := []struct {
+		name     string
+		fileSize int64
+		text     string
+	}{
+		{name: "file too large", fileSize: maxFileSize + 1, text: "unused"},
+		{name: "no speech", fileSize: 1024, text: "   "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			telegram := newFakeTelegram("audio-bytes")
+			telegram.replyErr = replyErr
+			stt := &fakeSTT{text: tt.text}
+			controller := NewController(telegram, stt)
+
+			audio := testAudio()
+			audio.FileSize = tt.fileSize
+
+			err := controller.HandleVoice(context.Background(), audio)
+			if !errors.Is(err, controllers.ErrSendReply) {
+				t.Fatalf("HandleVoice() error = %v, want errors.Is controllers.ErrSendReply", err)
+			}
+
+			if !errors.Is(err, replyErr) {
+				t.Errorf("HandleVoice() error = %v, want it to wrap the provider error", err)
+			}
+		})
 	}
 }

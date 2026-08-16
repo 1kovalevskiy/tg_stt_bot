@@ -1,4 +1,4 @@
-package config
+package configs
 
 import (
 	"fmt"
@@ -16,6 +16,13 @@ type Config struct {
 	App      App      `json:"app"`
 	Telegram Telegram `json:"telegram"`
 	STT      STT      `json:"stt"`
+
+	// Timeouts are configured as strings and parsed once, after validation
+	// has proven every one of them parseable and positive. cleanenv skips
+	// unexported fields, so these are filled in by NewConfig alone.
+	telegramAPITimeout      time.Duration
+	telegramDownloadTimeout time.Duration
+	sttTimeout              time.Duration
 }
 
 type App struct {
@@ -43,15 +50,13 @@ func init() {
 	}
 }
 
+// NewConfig reads the config file, applies the environment on top of it
+// (cleanenv.ReadConfig does both) and validates the result.
 func NewConfig(path string) (*Config, error) {
 	cfg := &Config{}
 
 	if err := cleanenv.ReadConfig(path, cfg); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrReadConfig, err)
-	}
-
-	if err := cleanenv.ReadEnv(cfg); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrReadEnv, err)
 	}
 
 	if err := validateConfig(cfg); err != nil {
@@ -83,13 +88,13 @@ func (c Config) GetTelegramAllowedChats() []int64 {
 
 // GetTelegramAPITimeout bounds a single Bot API call (getFile, sendMessage).
 func (c Config) GetTelegramAPITimeout() time.Duration {
-	return parseTimeout(c.Telegram.APITimeout)
+	return c.telegramAPITimeout
 }
 
 // GetTelegramDownloadTimeout bounds a single file download, including the
 // time the caller spends reading the body.
 func (c Config) GetTelegramDownloadTimeout() time.Duration {
-	return parseTimeout(c.Telegram.DownloadTimeout)
+	return c.telegramDownloadTimeout
 }
 
 func (c Config) GetSTTBaseURL() string {
@@ -102,21 +107,12 @@ func (c Config) GetSTTLanguage() string {
 
 // GetSTTTimeout bounds a single call to the STT service.
 func (c Config) GetSTTTimeout() time.Duration {
-	return parseTimeout(c.STT.Timeout)
+	return c.sttTimeout
 }
 
-// parseTimeout parses a duration from the config. validateConfig rejects
-// unparseable values on startup, so the zero fallback is unreachable for a
-// config built by NewConfig.
-func parseTimeout(raw string) time.Duration {
-	parsed, err := time.ParseDuration(strings.TrimSpace(raw))
-	if err != nil {
-		return 0
-	}
-
-	return parsed
-}
-
+// validateConfig rejects a config the bot cannot run with and caches the
+// parsed timeouts it has just proven correct, so the getters never re-parse
+// a string and never have to invent a fallback for an unparseable one.
 func validateConfig(cfg *Config) error {
 	if cfg == nil {
 		return ErrNilConfig
@@ -138,11 +134,13 @@ func validateConfig(cfg *Config) error {
 		return ErrZeroAllowedChat
 	}
 
-	if err := validateTimeout(cfg.Telegram.APITimeout, ErrInvalidTelegramAPITimeout); err != nil {
+	apiTimeout, err := validateTimeout(cfg.Telegram.APITimeout, ErrInvalidTelegramAPITimeout)
+	if err != nil {
 		return err
 	}
 
-	if err := validateTimeout(cfg.Telegram.DownloadTimeout, ErrInvalidTelegramDownloadTimeout); err != nil {
+	downloadTimeout, err := validateTimeout(cfg.Telegram.DownloadTimeout, ErrInvalidTelegramDownloadTimeout)
+	if err != nil {
 		return err
 	}
 
@@ -155,25 +153,31 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("%w: %q", ErrInvalidSTTBaseURL, cfg.STT.BaseURL)
 	}
 
-	if err := validateTimeout(cfg.STT.Timeout, ErrInvalidSTTTimeout); err != nil {
+	sttTimeout, err := validateTimeout(cfg.STT.Timeout, ErrInvalidSTTTimeout)
+	if err != nil {
 		return err
 	}
+
+	cfg.telegramAPITimeout = apiTimeout
+	cfg.telegramDownloadTimeout = downloadTimeout
+	cfg.sttTimeout = sttTimeout
 
 	return nil
 }
 
 // validateTimeout requires a parseable and positive duration: providers turn
 // these values into context deadlines, and a non-positive deadline would
-// expire before the request is even sent.
-func validateTimeout(raw string, sentinel error) error {
+// expire before the request is even sent. The parsed value is returned so the
+// caller can cache it instead of parsing the same string again.
+func validateTimeout(raw string, sentinel error) (time.Duration, error) {
 	parsed, err := time.ParseDuration(strings.TrimSpace(raw))
 	if err != nil {
-		return fmt.Errorf("%w: %w", sentinel, err)
+		return 0, fmt.Errorf("%w: %w", sentinel, err)
 	}
 
 	if parsed <= 0 {
-		return fmt.Errorf("%w: %q is not positive", sentinel, strings.TrimSpace(raw))
+		return 0, fmt.Errorf("%w: %q is not positive", sentinel, strings.TrimSpace(raw))
 	}
 
-	return nil
+	return parsed, nil
 }

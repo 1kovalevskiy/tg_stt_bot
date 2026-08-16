@@ -1,6 +1,9 @@
 package stt
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -34,24 +37,39 @@ func newTestProvider(baseURL, language string, timeout time.Duration, client htt
 	return NewProvider(fakeConfig{baseURL: baseURL, language: language, timeout: timeout}, client)
 }
 
-func TestNewProvider_KeepsConfigInsteadOfSnapshot(t *testing.T) {
-	t.Parallel()
+// TestNewProvider_ReadsConfigOnEveryCall pins the rule that the constructor
+// keeps the config instead of snapshotting its values: a setting changed after
+// the provider was built must show up in the next request it sends.
+func TestNewProvider_ReadsConfigOnEveryCall(t *testing.T) {
+	recorded := &recordedRequest{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorded.record(t, r)
 
-	config := &fakeConfig{baseURL: "http://stt.local:5092/", language: "ru", timeout: 42 * time.Second}
-	provider := NewProvider(config, nil)
+		if _, err := w.Write([]byte(`{"text":"ok"}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer server.Close()
 
-	if got := provider.config.GetSTTBaseURL(); got != "http://stt.local:5092" {
-		t.Errorf("config.GetSTTBaseURL() = %q, want %q", got, "http://stt.local:5092")
+	config := &fakeConfig{baseURL: server.URL, language: "ru", timeout: testTimeout}
+	provider := NewProvider(config, server.Client())
+
+	if _, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg"); err != nil {
+		t.Fatalf("first Transcribe() unexpected error: %v", err)
 	}
 
-	if got := provider.config.GetSTTTimeout(); got != 42*time.Second {
-		t.Errorf("config.GetSTTTimeout() = %v, want %v", got, 42*time.Second)
+	if got := recorded.snapshot(); got.language != "ru" {
+		t.Fatalf("first request language = %q, want %q", got.language, "ru")
 	}
 
-	// The values are read from the config, not copied into the provider.
 	config.language = "en"
 
-	if got := provider.config.GetSTTLanguage(); got != "en" {
-		t.Errorf("config.GetSTTLanguage() = %q, want %q", got, "en")
+	if _, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg"); err != nil {
+		t.Fatalf("second Transcribe() unexpected error: %v", err)
+	}
+
+	if got := recorded.snapshot(); got.language != "en" {
+		t.Errorf("second request language = %q, want %q: the config was snapshot into the provider",
+			got.language, "en")
 	}
 }

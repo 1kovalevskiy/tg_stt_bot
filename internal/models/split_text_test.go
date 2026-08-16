@@ -28,6 +28,20 @@ func TestSplitText(t *testing.T) {
 			want:  []string{"hello"},
 		},
 		{
+			// Telegram rejects a blank message, and the answer must not
+			// depend on whether the text happens to fit the limit.
+			name:  "whitespace only, fits the limit",
+			text:  "   ",
+			limit: 10,
+			want:  nil,
+		},
+		{
+			name:  "whitespace only, over the limit",
+			text:  "   ",
+			limit: 2,
+			want:  nil,
+		},
+		{
 			name:  "exactly limit",
 			text:  "hello",
 			limit: 5,

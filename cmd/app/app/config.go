@@ -3,7 +3,7 @@ package app
 import (
 	"fmt"
 
-	config "github.com/1kovalevskiy/tg_stt_bot/internal/configs"
+	"github.com/1kovalevskiy/tg_stt_bot/internal/configs"
 )
 
 // initConfig takes the config from the options or loads it from disk.
@@ -19,7 +19,7 @@ func (a *App) initConfig(opts *Opts) error {
 		path = opts.ConfigPath
 	}
 
-	cfg, err := config.NewConfig(path)
+	cfg, err := configs.NewConfig(path)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrReadConfig, err)
 	}

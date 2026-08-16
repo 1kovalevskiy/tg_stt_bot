@@ -1,11 +1,10 @@
-package config
+package configs
 
 import "errors"
 
 var (
 	ErrNilConfig                      = errors.New("config is nil")
 	ErrReadConfig                     = errors.New("failed to read config file")
-	ErrReadEnv                        = errors.New("failed to read environment")
 	ErrEmptyTelegramToken             = errors.New("telegram.token is empty")
 	ErrZeroTelegramAdminID            = errors.New("telegram.admin_id is zero")
 	ErrZeroTelegramServiceChatID      = errors.New("telegram.service_chat_id is zero")

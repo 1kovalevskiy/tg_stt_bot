@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/1kovalevskiy/tg_stt_bot/internal/controllers"
 	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
@@ -15,6 +16,10 @@ const (
 	// maxFileSize is the Bot API download limit: getFile refuses bigger files,
 	// so they are rejected before any download attempt.
 	maxFileSize = 20 << 20 // 20 MB
+	// failureReplyTimeout bounds the failure notice, which is sent with a
+	// context detached from the caller's cancellation and would otherwise
+	// hold up the shutdown for a full Bot API timeout.
+	failureReplyTimeout = 5 * time.Second
 
 	msgFileTooLarge     = "Файл слишком большой, я не могу его скачать."
 	msgNoSpeech         = "Речь не распознана."
@@ -34,7 +39,7 @@ func (c *Controller) transcribeAndReply(ctx context.Context, audio models.Incomi
 
 	text, err := c.transcribe(ctx, audio, filename)
 	if err != nil {
-		return errors.Join(err, c.reply(ctx, audio, msgTranscribeFailed))
+		return errors.Join(err, c.replyFailure(ctx, audio))
 	}
 
 	if strings.TrimSpace(text) == "" {
@@ -46,11 +51,23 @@ func (c *Controller) transcribeAndReply(ctx context.Context, audio models.Incomi
 	// chained to each other.
 	for _, chunk := range models.SplitText(text, models.TelegramMessageLimit) {
 		if err := c.reply(ctx, audio, chunk); err != nil {
-			return err
+			// The chunks before this one are already in the chat: without a
+			// notice the user reads a transcript that stops mid-sentence.
+			return errors.Join(err, c.replyFailure(ctx, audio))
 		}
 	}
 
 	return nil
+}
+
+// replyFailure tells the user the transcription did not go through. The notice
+// detaches from the caller's cancellation: during shutdown that context is
+// already canceled and the user would be left without any answer at all.
+func (c *Controller) replyFailure(ctx context.Context, audio models.IncomingAudio) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), failureReplyTimeout)
+	defer cancel()
+
+	return c.reply(ctx, audio, msgTranscribeFailed)
 }
 
 // transcribe downloads the audio file and sends it to the STT service.

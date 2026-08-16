@@ -12,7 +12,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	config "github.com/1kovalevskiy/tg_stt_bot/internal/configs"
+	"github.com/1kovalevskiy/tg_stt_bot/internal/configs"
 	adminController "github.com/1kovalevskiy/tg_stt_bot/internal/controllers/admin-controller"
 	chatController "github.com/1kovalevskiy/tg_stt_bot/internal/controllers/chat-controller"
 	sttProvider "github.com/1kovalevskiy/tg_stt_bot/internal/providers/stt"
@@ -41,7 +41,7 @@ type (
 
 	// App is the composition root of the bot.
 	App struct {
-		Config      *config.Config
+		Config      *configs.Config
 		Providers   Providers
 		Controllers Controllers
 		Bot         *bot.Bot
@@ -53,7 +53,7 @@ type (
 	// Opts allows the caller to override what InitApp would build itself.
 	Opts struct {
 		ConfigPath string
-		Config     *config.Config
+		Config     *configs.Config
 	}
 )
 

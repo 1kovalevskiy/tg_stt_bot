@@ -14,9 +14,10 @@ const TelegramMessageLimit = 4096
 // counted in UTF-16 code units (Telegram counts message length this way).
 // Chunks are cut at line boundaries when possible, then at word boundaries,
 // and only mid-word when a single word exceeds the limit. Whitespace around
-// cut points is trimmed. Empty text yields nil.
+// cut points is trimmed. Empty and whitespace-only text yields nil: Telegram
+// rejects blank messages, and the result must not depend on the limit.
 func SplitText(text string, limit int) []string {
-	if text == "" {
+	if strings.TrimSpace(text) == "" {
 		return nil
 	}
 
@@ -64,10 +65,7 @@ func cutIndex(s string, limit int) int {
 	lastSpace := -1
 
 	for i, r := range s {
-		runeLen := utf16.RuneLen(r)
-		if runeLen < 0 {
-			runeLen = 1
-		}
+		runeLen := runeUnits(r)
 
 		if units+runeLen > limit {
 			if lastNewline >= 0 {
@@ -99,13 +97,20 @@ func utf16Len(s string) int {
 	units := 0
 
 	for _, r := range s {
-		runeLen := utf16.RuneLen(r)
-		if runeLen < 0 {
-			runeLen = 1
-		}
-
-		units += runeLen
+		units += runeUnits(r)
 	}
 
 	return units
+}
+
+// runeUnits returns how many UTF-16 code units r takes. Ranging over a string
+// never yields a surrogate or an out-of-range rune (invalid bytes come out as
+// utf8.RuneError), but a negative length would make the counters run backwards,
+// so it is clamped here once for both callers.
+func runeUnits(r rune) int {
+	if units := utf16.RuneLen(r); units > 0 {
+		return units
+	}
+
+	return 1
 }

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM golang:1.26.6 AS deps
+FROM --platform=$BUILDPLATFORM golang:1.26.6 AS deps
 
 WORKDIR /src
 
@@ -15,14 +15,21 @@ FROM deps AS build
 
 WORKDIR /src
 
+# Cross-compilation targets come from buildx; they default to the build
+# platform for a plain `docker build`. Hardcoding the architecture here would
+# put amd64 binaries into arm64-labeled manifests as soon as the release
+# workflow builds more than one platform.
+ARG TARGETOS
+ARG TARGETARCH
+
 # Copy only the source tree required to build the application binary.
 COPY cmd ./cmd
 COPY internal ./internal
 
-# Build a static Linux binary and strip debug symbols to keep the runtime image small.
+# Build a static binary and strip debug symbols to keep the runtime image small.
 RUN --mount=type=cache,target=/go/pkg/mod \
 	--mount=type=cache,target=/root/.cache/go-build \
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+	CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
 	go build -trimpath -ldflags="-s -w" -o /out/tg_stt_bot ./cmd/app
 
 FROM gcr.io/distroless/static-debian12:nonroot

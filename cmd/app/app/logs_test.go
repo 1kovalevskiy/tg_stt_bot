@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
@@ -67,7 +68,7 @@ func newTestLogger(t *testing.T, sender *fakeSender, queueSize int) (*slog.Logge
 	inner := slog.NewTextHandler(stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
 	sink := newServiceChatSink(sender, serviceChatID, queueSize, log.New(errOut, "", 0))
 
-	return slog.New(newServiceChatHandler(inner, sink)), stdout, errOut, sink
+	return slog.New(newFanOutHandler(inner, newServiceChatMirror(sink))), stdout, errOut, sink
 }
 
 func TestServiceChatHandler_ErrorGoesToServiceChat(t *testing.T) {
@@ -85,12 +86,17 @@ func TestServiceChatHandler_ErrorGoesToServiceChat(t *testing.T) {
 		t.Fatalf("sender got %d messages, want 1", len(sent))
 	}
 
-	if !strings.Contains(sent[0], "stt is down") || !strings.Contains(sent[0], "err=connection refused") {
+	if !strings.Contains(sent[0], "stt is down") || !strings.Contains(sent[0], `err="connection refused"`) {
 		t.Errorf("service chat message = %q, want the message and its attrs", sent[0])
 	}
 
-	if !strings.HasPrefix(sent[0], slog.LevelError.String()) {
-		t.Errorf("service chat message = %q, want it to start with the level", sent[0])
+	if !strings.Contains(sent[0], "level="+slog.LevelError.String()) {
+		t.Errorf("service chat message = %q, want it to carry the level", sent[0])
+	}
+
+	// Telegram stamps every message itself, so the record timestamp is dropped.
+	if strings.Contains(sent[0], "time=") {
+		t.Errorf("service chat message = %q, want the timestamp dropped", sent[0])
 	}
 
 	if ids := sender.sentChatIDs(); len(ids) != 1 || ids[0] != serviceChatID {
@@ -138,7 +144,7 @@ func TestServiceChatHandler_ErrorPassesHigherInnerLevel(t *testing.T) {
 	// The inner handler drops everything: ERROR must still reach the sink.
 	inner := slog.NewTextHandler(stdout, &slog.HandlerOptions{Level: slog.LevelError + 1})
 	sink := newServiceChatSink(sender, serviceChatID, serviceChatQueueSize, log.New(io.Discard, "", 0))
-	logger := slog.New(newServiceChatHandler(inner, sink))
+	logger := slog.New(newFanOutHandler(inner, newServiceChatMirror(sink)))
 
 	logger.Error("boom")
 
@@ -259,8 +265,10 @@ func TestServiceChatSink_OverflowDoesNotBlock(t *testing.T) {
 		t.Errorf("sink error log = %q, want a drop report", errOut.String())
 	}
 
-	if got := len(sender.sent()); got >= 100 {
-		t.Errorf("sender got %d messages, want the overflow dropped", got)
+	// One record is held by the blocked delivery, one more fits the queue of
+	// size 1: everything else must have been dropped.
+	if got := len(sender.sent()); got > 2 {
+		t.Errorf("sender got %d messages, want at most 2 for a queue of size 1", got)
 	}
 }
 
@@ -351,5 +359,93 @@ func TestParseLogLevel(t *testing.T) {
 				t.Errorf("parseLogLevel(%q) = %v, want %v", tt.value, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestServiceChatSink_QueueSizeIsClampedToAtLeastOne(t *testing.T) {
+	sink := newServiceChatSink(&fakeSender{}, serviceChatID, 0, log.New(io.Discard, "", 0))
+
+	defer func() {
+		if err := sink.Close(); err != nil {
+			t.Errorf("Close() unexpected error: %v", err)
+		}
+	}()
+
+	if got := cap(sink.queue); got != 1 {
+		t.Errorf("queue capacity = %d, want 1 for a non-positive queue size", got)
+	}
+}
+
+func TestServiceChatSink_CloseReportsDrainTimeout(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+
+	sender := &fakeSender{block: release}
+	logger, _, _, sink := newTestLogger(t, sender, serviceChatQueueSize)
+
+	// The drain must not outlive a stuck delivery forever; shortened here so
+	// the test does not wait out a real send timeout.
+	sink.drainTimeout = 50 * time.Millisecond
+
+	logger.Error("stuck record")
+
+	if err := sink.Close(); !errors.Is(err, ErrLogSinkDrainTimeout) {
+		t.Fatalf("Close() error = %v, want ErrLogSinkDrainTimeout", err)
+	}
+}
+
+func TestServiceChatSink_RateLimitCapsDeliveriesAndReportsTheRest(t *testing.T) {
+	sender := &fakeSender{}
+	logger, _, _, sink := newTestLogger(t, sender, serviceChatQueueSize)
+
+	const extra = 5
+
+	for i := 0; i < serviceChatRateBurst+extra; i++ {
+		logger.Error("repeating failure")
+	}
+
+	if err := sink.Close(); err != nil {
+		t.Fatalf("Close() unexpected error: %v", err)
+	}
+
+	sent := sender.sent()
+
+	// The burst plus a single summary of everything the limit dropped.
+	if len(sent) != serviceChatRateBurst+1 {
+		t.Fatalf("sender got %d messages, want %d", len(sent), serviceChatRateBurst+1)
+	}
+
+	summary := sent[len(sent)-1]
+	if !strings.Contains(summary, fmt.Sprintf(msgSuppressedFormat, extra)) {
+		t.Errorf("last message = %q, want a summary of %d suppressed records", summary, extra)
+	}
+}
+
+func TestServiceChatSink_WriteTruncatesToOneMessage(t *testing.T) {
+	sender := &fakeSender{}
+	sink := newServiceChatSink(sender, serviceChatID, serviceChatQueueSize, log.New(io.Discard, "", 0))
+
+	long := strings.Repeat("\U0001F600", models.TelegramMessageLimit)
+
+	n, err := sink.Write([]byte(long + "\n"))
+	if err != nil {
+		t.Fatalf("Write() unexpected error: %v", err)
+	}
+
+	if n != len(long)+1 {
+		t.Errorf("Write() = %d, want the whole input reported as written", n)
+	}
+
+	if err := sink.Close(); err != nil {
+		t.Fatalf("Close() unexpected error: %v", err)
+	}
+
+	sent := sender.sent()
+	if len(sent) != 1 {
+		t.Fatalf("sender got %d messages, want 1", len(sent))
+	}
+
+	if chunks := models.SplitText(sent[0], models.TelegramMessageLimit); len(chunks) != 1 {
+		t.Errorf("service chat message is %d chunks long, want it to fit into one message", len(chunks))
 	}
 }

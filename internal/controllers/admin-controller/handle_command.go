@@ -6,13 +6,20 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/1kovalevskiy/tg_stt_bot/internal/controllers"
+	"github.com/1kovalevskiy/tg_stt_bot/internal/models"
 )
 
 const (
 	commandStatus = "/status"
 	commandChats  = "/chats"
+
+	// healthTimeout bounds the /status probe. Without it the probe inherits
+	// the full transcription budget, and a hung service would keep the admin
+	// waiting minutes for an answer that is supposed to be immediate.
+	healthTimeout = 10 * time.Second
 
 	statusPrefix      = "parakeet: "
 	chatsHeader       = "Разрешённые чаты:"
@@ -37,12 +44,26 @@ func (c *Controller) HandleCommand(ctx context.Context, chatID int64, command st
 
 // status checks the STT service and reports its raw health response.
 func (c *Controller) status(ctx context.Context, chatID int64) error {
-	health, err := c.stt.Health(ctx)
+	health, err := c.health(ctx)
 	if err != nil {
-		return errors.Join(fmt.Errorf("%w: %w", controllers.ErrSTTHealth, err), c.send(ctx, chatID, msgSTTUnhealthy))
+		return errors.Join(err, c.send(ctx, chatID, msgSTTUnhealthy))
 	}
 
 	return c.send(ctx, chatID, statusPrefix+health)
+}
+
+// health probes the STT service under its own short deadline, derived from the
+// caller's context so that the reply below is still sendable when it expires.
+func (c *Controller) health(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, healthTimeout)
+	defer cancel()
+
+	health, err := c.stt.Health(ctx)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", controllers.ErrSTTHealth, err)
+	}
+
+	return health, nil
 }
 
 // chats reports the configured chat whitelist.
@@ -62,10 +83,14 @@ func (c *Controller) chats(ctx context.Context, chatID int64) error {
 	return c.send(ctx, chatID, strings.Join(lines, "\n"))
 }
 
-// send sends text to the chat.
+// send sends text to the chat, split into Telegram-sized chunks: a health
+// response and a long whitelist can both exceed the message limit, and
+// Telegram rejects an oversized message instead of trimming it.
 func (c *Controller) send(ctx context.Context, chatID int64, text string) error {
-	if err := c.telegram.SendMessage(ctx, chatID, text); err != nil {
-		return fmt.Errorf("%w: %w", controllers.ErrSendMessage, err)
+	for _, chunk := range models.SplitText(text, models.TelegramMessageLimit) {
+		if err := c.telegram.SendMessage(ctx, chatID, chunk); err != nil {
+			return fmt.Errorf("%w: %w", controllers.ErrSendMessage, err)
+		}
 	}
 
 	return nil
