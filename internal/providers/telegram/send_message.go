@@ -9,6 +9,9 @@ import (
 
 // SendMessage sends a plain text message to the chat.
 func (p *Provider) SendMessage(ctx context.Context, chatID int64, text string) error {
+	ctx, cancel := context.WithTimeout(ctx, p.config.GetTelegramAPITimeout())
+	defer cancel()
+
 	_, err := p.api.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: chatID,
 		Text:   text,

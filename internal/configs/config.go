@@ -23,10 +23,12 @@ type App struct {
 }
 
 type Telegram struct {
-	Token         string  `json:"token" env:"TELEGRAM_TOKEN"`
-	AdminID       int64   `json:"admin_id" env:"TELEGRAM_ADMIN_ID"`
-	ServiceChatID int64   `json:"service_chat_id" env:"TELEGRAM_SERVICE_CHAT_ID"`
-	AllowedChats  []int64 `json:"allowed_chats" env:"TELEGRAM_ALLOWED_CHATS"`
+	Token           string  `json:"token" env:"TELEGRAM_TOKEN"`
+	AdminID         int64   `json:"admin_id" env:"TELEGRAM_ADMIN_ID"`
+	ServiceChatID   int64   `json:"service_chat_id" env:"TELEGRAM_SERVICE_CHAT_ID"`
+	AllowedChats    []int64 `json:"allowed_chats" env:"TELEGRAM_ALLOWED_CHATS"`
+	APITimeout      string  `json:"api_timeout" env:"TELEGRAM_API_TIMEOUT" env-default:"30s"`
+	DownloadTimeout string  `json:"download_timeout" env:"TELEGRAM_DOWNLOAD_TIMEOUT" env-default:"2m"`
 }
 
 type STT struct {
@@ -79,6 +81,17 @@ func (c Config) GetTelegramAllowedChats() []int64 {
 	return c.Telegram.AllowedChats
 }
 
+// GetTelegramAPITimeout bounds a single Bot API call (getFile, sendMessage).
+func (c Config) GetTelegramAPITimeout() time.Duration {
+	return parseTimeout(c.Telegram.APITimeout)
+}
+
+// GetTelegramDownloadTimeout bounds a single file download, including the
+// time the caller spends reading the body.
+func (c Config) GetTelegramDownloadTimeout() time.Duration {
+	return parseTimeout(c.Telegram.DownloadTimeout)
+}
+
 func (c Config) GetSTTBaseURL() string {
 	return strings.TrimRight(strings.TrimSpace(c.STT.BaseURL), "/")
 }
@@ -87,8 +100,16 @@ func (c Config) GetSTTLanguage() string {
 	return strings.TrimSpace(c.STT.Language)
 }
 
+// GetSTTTimeout bounds a single call to the STT service.
 func (c Config) GetSTTTimeout() time.Duration {
-	parsed, err := time.ParseDuration(strings.TrimSpace(c.STT.Timeout))
+	return parseTimeout(c.STT.Timeout)
+}
+
+// parseTimeout parses a duration from the config. validateConfig rejects
+// unparseable values on startup, so the zero fallback is unreachable for a
+// config built by NewConfig.
+func parseTimeout(raw string) time.Duration {
+	parsed, err := time.ParseDuration(strings.TrimSpace(raw))
 	if err != nil {
 		return 0
 	}
@@ -117,6 +138,14 @@ func validateConfig(cfg *Config) error {
 		return ErrZeroAllowedChat
 	}
 
+	if err := validateTimeout(cfg.Telegram.APITimeout, ErrInvalidTelegramAPITimeout); err != nil {
+		return err
+	}
+
+	if err := validateTimeout(cfg.Telegram.DownloadTimeout, ErrInvalidTelegramDownloadTimeout); err != nil {
+		return err
+	}
+
 	baseURL, err := url.Parse(strings.TrimSpace(cfg.STT.BaseURL))
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidSTTBaseURL, err)
@@ -126,8 +155,24 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("%w: %q", ErrInvalidSTTBaseURL, cfg.STT.BaseURL)
 	}
 
-	if _, err := time.ParseDuration(strings.TrimSpace(cfg.STT.Timeout)); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidSTTTimeout, err)
+	if err := validateTimeout(cfg.STT.Timeout, ErrInvalidSTTTimeout); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateTimeout requires a parseable and positive duration: providers turn
+// these values into context deadlines, and a non-positive deadline would
+// expire before the request is even sent.
+func validateTimeout(raw string, sentinel error) error {
+	parsed, err := time.ParseDuration(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("%w: %w", sentinel, err)
+	}
+
+	if parsed <= 0 {
+		return fmt.Errorf("%w: %q is not positive", sentinel, strings.TrimSpace(raw))
 	}
 
 	return nil

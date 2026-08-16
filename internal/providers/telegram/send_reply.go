@@ -13,6 +13,9 @@ import (
 // deleted while the transcription was in flight, and the reply should
 // still reach the chat.
 func (p *Provider) SendReply(ctx context.Context, chatID int64, replyToMessageID int, text string) error {
+	ctx, cancel := context.WithTimeout(ctx, p.config.GetTelegramAPITimeout())
+	defer cancel()
+
 	_, err := p.api.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: chatID,
 		Text:   text,

@@ -4,7 +4,9 @@
     "token": "0000000000:PLACEHOLDER",
     "admin_id": 0,
     "service_chat_id": 0,
-    "allowed_chats": []
+    "allowed_chats": [],
+    "api_timeout": "30s",
+    "download_timeout": "2m"
   },
   "stt": { "base_url": "http://stt.stt.svc.cluster.local", "language": "", "timeout": "120s" }
 }

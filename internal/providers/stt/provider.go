@@ -4,7 +4,7 @@ package stt
 
 import (
 	"net/http"
-	"strings"
+	"time"
 )
 
 type (
@@ -13,22 +13,30 @@ type (
 		Do(req *http.Request) (*http.Response, error)
 	}
 
+	// configProvider is the consumer-side interface of the application config.
+	// The base URL is expected to come normalized (no trailing slash), and the
+	// timeout bounds a single call to the service.
+	configProvider interface {
+		GetSTTBaseURL() string
+		GetSTTLanguage() string
+		GetSTTTimeout() time.Duration
+	}
+
 	// Provider is a parakeet STT API client. It holds no mutable state
 	// and is safe for concurrent use.
 	Provider struct {
-		baseURL  string
-		language string
-		client   httpDoer
+		config configProvider
+		client httpDoer
 	}
 )
 
-// NewProvider creates a Provider talking to the parakeet service at baseURL.
-// If language is empty, it is not sent and the service detects the language
-// on its own.
-func NewProvider(baseURL, language string, client httpDoer) *Provider {
+// NewProvider creates a Provider talking to the parakeet service configured by
+// config. The settings are read from the config on every call, never snapshot
+// into the provider. If the configured language is empty, it is not sent and
+// the service detects the language on its own.
+func NewProvider(config configProvider, client httpDoer) *Provider {
 	return &Provider{
-		baseURL:  strings.TrimRight(baseURL, "/"),
-		language: language,
-		client:   client,
+		config: config,
+		client: client,
 	}
 }

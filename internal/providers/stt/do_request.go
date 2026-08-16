@@ -41,8 +41,8 @@ func (p *Provider) doRequest(req *http.Request) ([]byte, error) {
 }
 
 // wrapTransportError wraps a client.Do error into a layer error, folding
-// context cancellation and deadlines (including http.Client timeouts)
-// into providers.ErrSTTRequestTimeout.
+// context cancellation and deadlines (including the configured timeout, which
+// is enforced through the request context) into providers.ErrSTTRequestTimeout.
 func wrapTransportError(err error) error {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return fmt.Errorf("%w: %w", providers.ErrSTTRequestTimeout, err)

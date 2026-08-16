@@ -6,6 +6,7 @@ package telegram
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/go-telegram/bot"
 	tgmodels "github.com/go-telegram/bot/models"
@@ -28,21 +29,30 @@ type (
 		Do(req *http.Request) (*http.Response, error)
 	}
 
+	// configProvider is the consumer-side interface of the application config.
+	// The token is needed to build file download URLs and to redact errors;
+	// the timeouts bound a single Bot API call and a single file download.
+	configProvider interface {
+		GetTelegramToken() string
+		GetTelegramAPITimeout() time.Duration
+		GetTelegramDownloadTimeout() time.Duration
+	}
+
 	// Provider is a Telegram Bot API client. It holds no mutable state
 	// and is safe for concurrent use.
 	Provider struct {
 		api    botAPI
-		token  string
+		config configProvider
 		client httpDoer
 	}
 )
 
-// NewProvider creates a Provider on top of the bot API client. The token is
-// needed to build file download URLs and to redact errors.
-func NewProvider(api botAPI, token string, client httpDoer) *Provider {
+// NewProvider creates a Provider on top of the bot API client. The settings
+// are read from the config on every call, never snapshot into the provider.
+func NewProvider(api botAPI, config configProvider, client httpDoer) *Provider {
 	return &Provider{
 		api:    api,
-		token:  token,
+		config: config,
 		client: client,
 	}
 }

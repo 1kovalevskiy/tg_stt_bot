@@ -76,7 +76,7 @@ func TestTranscribe_Success_NoLanguage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewProvider(server.URL, "", server.Client())
+	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
 	text, err := provider.Transcribe(context.Background(), strings.NewReader("audio-bytes"), "voice.ogg")
 	if err != nil {
@@ -119,7 +119,7 @@ func TestTranscribe_Success_WithLanguage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewProvider(server.URL, "ru", server.Client())
+	provider := newTestProvider(server.URL, "ru", testTimeout, server.Client())
 
 	text, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if err != nil {
@@ -149,7 +149,7 @@ func TestTranscribe_HTTPErrorWithOpenAIEnvelope(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewProvider(server.URL, "", server.Client())
+	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
 	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if err == nil {
@@ -179,7 +179,7 @@ func TestTranscribe_HTTPErrorWithoutEnvelope(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewProvider(server.URL, "", server.Client())
+	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
 	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if !errors.Is(err, providers.ErrSTTUnexpectedStatus) {
@@ -202,7 +202,7 @@ func TestTranscribe_ContextDeadline(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewProvider(server.URL, "", server.Client())
+	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
@@ -221,13 +221,37 @@ func TestTranscribe_ContextDeadline(t *testing.T) {
 	}
 }
 
+func TestTranscribe_ConfiguredTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// No deadline on the caller's context: the timeout comes from the config.
+	provider := newTestProvider(server.URL, "", 20*time.Millisecond, server.Client())
+
+	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
+	if !errors.Is(err, providers.ErrSTTRequestTimeout) {
+		t.Fatalf("Transcribe() error = %v, want errors.Is providers.ErrSTTRequestTimeout", err)
+	}
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Transcribe() error = %v, want it to wrap context.DeadlineExceeded", err)
+	}
+}
+
 func TestTranscribe_ContextCanceled(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
-	provider := NewProvider(server.URL, "", server.Client())
+	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -250,7 +274,7 @@ func TestTranscribe_InvalidJSONResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewProvider(server.URL, "", server.Client())
+	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
 	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if !errors.Is(err, providers.ErrSTTInvalidResponse) {
@@ -262,7 +286,7 @@ func TestTranscribe_ServiceUnavailable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	server.Close() // shut down before the call: connection refused
 
-	provider := NewProvider(server.URL, "", &http.Client{})
+	provider := newTestProvider(server.URL, "", testTimeout, &http.Client{})
 
 	_, err := provider.Transcribe(context.Background(), strings.NewReader("audio"), "voice.ogg")
 	if !errors.Is(err, providers.ErrSTTServiceUnavailable) {

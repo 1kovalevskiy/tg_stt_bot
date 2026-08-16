@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/1kovalevskiy/tg_stt_bot/internal/providers"
 )
@@ -24,7 +25,7 @@ func TestHealth_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewProvider(server.URL, "", server.Client())
+	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
 	body, err := provider.Health(context.Background())
 	if err != nil {
@@ -54,7 +55,7 @@ func TestHealth_UnexpectedStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewProvider(server.URL, "", server.Client())
+	provider := newTestProvider(server.URL, "", testTimeout, server.Client())
 
 	_, err := provider.Health(context.Background())
 	if !errors.Is(err, providers.ErrSTTUnexpectedStatus) {
@@ -70,11 +71,35 @@ func TestHealth_UnexpectedStatus(t *testing.T) {
 	}
 }
 
+func TestHealth_ConfiguredTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// No deadline on the caller's context: the timeout comes from the config.
+	provider := newTestProvider(server.URL, "", 20*time.Millisecond, server.Client())
+
+	_, err := provider.Health(context.Background())
+	if !errors.Is(err, providers.ErrSTTRequestTimeout) {
+		t.Fatalf("Health() error = %v, want errors.Is providers.ErrSTTRequestTimeout", err)
+	}
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Health() error = %v, want it to wrap context.DeadlineExceeded", err)
+	}
+}
+
 func TestHealth_ServiceUnavailable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	server.Close() // shut down before the call: connection refused
 
-	provider := NewProvider(server.URL, "", &http.Client{})
+	provider := newTestProvider(server.URL, "", testTimeout, &http.Client{})
 
 	_, err := provider.Health(context.Background())
 	if !errors.Is(err, providers.ErrSTTServiceUnavailable) {

@@ -41,11 +41,17 @@ Telegram-бот на Go, который расшифровывает голос�
 | `telegram.admin_id`       | `TELEGRAM_ADMIN_ID`       | int64    | —            | user id админа (он же chat id его лички), не может быть `0`            |
 | `telegram.service_chat_id`| `TELEGRAM_SERVICE_CHAT_ID`| int64    | —            | чат/канал для ERROR-логов, не может быть `0`                           |
 | `telegram.allowed_chats`  | `TELEGRAM_ALLOWED_CHATS`  | []int64  | `[]`         | whitelist чатов (в env — через запятую), нулевых элементов быть не может |
+| `telegram.api_timeout`    | `TELEGRAM_API_TIMEOUT`    | duration | `30s`        | таймаут одного вызова Bot API (`getFile`, `sendMessage`), должен быть положительным |
+| `telegram.download_timeout`| `TELEGRAM_DOWNLOAD_TIMEOUT`| duration| `2m`         | таймаут скачивания файла целиком, включая чтение тела контроллером      |
 | `stt.base_url`            | `STT_BASE_URL`            | string   | —            | база parakeet, должна парситься как URL со схемой и хостом             |
 | `stt.language`            | `STT_LANGUAGE`            | string   | `""`         | пустое значение не отправляется — сервис определяет язык сам           |
-| `stt.timeout`             | `STT_TIMEOUT`             | duration | `120s`       | таймаут HTTP-клиента для расшифровки                                   |
+| `stt.timeout`             | `STT_TIMEOUT`             | duration | `120s`       | таймаут одного вызова STT (расшифровка, `/health`)                     |
 
 Конфиг валидируется на старте; при ошибке валидации приложение падает с паникой на этапе `config`.
+
+Таймауты доезжают до внешних вызовов только через контекст: провайдер в начале каждого публичного
+метода строит дочерний `context.WithTimeout` с таймаутом из конфига, у `http.Client` своего таймаута
+нет — иначе дедлайнов было бы два. Все таймауты — положительные duration (`0` не принимается).
 
 ## Локальный запуск
 

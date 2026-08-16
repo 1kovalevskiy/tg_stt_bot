@@ -15,8 +15,9 @@ const redactedToken = "[REDACTED]"
 // leak through a wrapped error.
 func (p *Provider) wrapRedacted(sentinel, err error) error {
 	msg := err.Error()
-	if p.token != "" {
-		msg = strings.ReplaceAll(msg, p.token, redactedToken)
+
+	if token := p.config.GetTelegramToken(); token != "" {
+		msg = strings.ReplaceAll(msg, token, redactedToken)
 	}
 
 	return fmt.Errorf("%w: %s", sentinel, msg)

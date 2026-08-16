@@ -19,14 +19,17 @@ const transcriptionsPath = "/v1/audio/transcriptions"
 // The multipart body is buffered in memory: callers only pass files up to
 // the Telegram Bot API download limit (20 MB), so no streaming is needed.
 func (p *Provider) Transcribe(ctx context.Context, audio io.Reader, filename string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.config.GetSTTTimeout())
+	defer cancel()
+
 	body := &bytes.Buffer{}
 
-	contentType, err := writeMultipartBody(body, audio, filename, p.language)
+	contentType, err := writeMultipartBody(body, audio, filename, p.config.GetSTTLanguage())
 	if err != nil {
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+transcriptionsPath, body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.config.GetSTTBaseURL()+transcriptionsPath, body)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", providers.ErrSTTBuildRequest, err)
 	}

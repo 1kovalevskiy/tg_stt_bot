@@ -62,6 +62,14 @@ func TestNewConfig_ValidFile(t *testing.T) {
 	if got := cfg.GetSTTTimeout(); got != 30*time.Second {
 		t.Errorf("GetSTTTimeout() = %v, want %v", got, 30*time.Second)
 	}
+
+	// Not present in the file: the env defaults apply.
+	if got := cfg.GetTelegramAPITimeout(); got != 30*time.Second {
+		t.Errorf("GetTelegramAPITimeout() = %v, want default %v", got, 30*time.Second)
+	}
+	if got := cfg.GetTelegramDownloadTimeout(); got != 2*time.Minute {
+		t.Errorf("GetTelegramDownloadTimeout() = %v, want default %v", got, 2*time.Minute)
+	}
 }
 
 func TestNewConfig_EnvOverrides(t *testing.T) {
@@ -72,6 +80,8 @@ func TestNewConfig_EnvOverrides(t *testing.T) {
 	t.Setenv("TELEGRAM_ADMIN_ID", "777")
 	t.Setenv("TELEGRAM_SERVICE_CHAT_ID", "-888")
 	t.Setenv("TELEGRAM_ALLOWED_CHATS", "-1,2,3")
+	t.Setenv("TELEGRAM_API_TIMEOUT", "5s")
+	t.Setenv("TELEGRAM_DOWNLOAD_TIMEOUT", "90s")
 	t.Setenv("STT_BASE_URL", "http://192.168.10.53:5092")
 	t.Setenv("STT_LANGUAGE", "en")
 	t.Setenv("STT_TIMEOUT", "45s")
@@ -104,6 +114,12 @@ func TestNewConfig_EnvOverrides(t *testing.T) {
 	}
 	if got := cfg.GetSTTTimeout(); got != 45*time.Second {
 		t.Errorf("GetSTTTimeout() = %v, want %v", got, 45*time.Second)
+	}
+	if got := cfg.GetTelegramAPITimeout(); got != 5*time.Second {
+		t.Errorf("GetTelegramAPITimeout() = %v, want %v", got, 5*time.Second)
+	}
+	if got := cfg.GetTelegramDownloadTimeout(); got != 90*time.Second {
+		t.Errorf("GetTelegramDownloadTimeout() = %v, want %v", got, 90*time.Second)
 	}
 }
 
@@ -180,6 +196,31 @@ func TestValidateConfig(t *testing.T) {
 			mutate:  func(cfg *Config) { cfg.STT.Timeout = "not-a-duration" },
 			wantErr: ErrInvalidSTTTimeout,
 		},
+		{
+			name:    "non-positive stt timeout",
+			mutate:  func(cfg *Config) { cfg.STT.Timeout = "0s" },
+			wantErr: ErrInvalidSTTTimeout,
+		},
+		{
+			name:    "invalid telegram api timeout",
+			mutate:  func(cfg *Config) { cfg.Telegram.APITimeout = "not-a-duration" },
+			wantErr: ErrInvalidTelegramAPITimeout,
+		},
+		{
+			name:    "non-positive telegram api timeout",
+			mutate:  func(cfg *Config) { cfg.Telegram.APITimeout = "-1s" },
+			wantErr: ErrInvalidTelegramAPITimeout,
+		},
+		{
+			name:    "invalid telegram download timeout",
+			mutate:  func(cfg *Config) { cfg.Telegram.DownloadTimeout = "" },
+			wantErr: ErrInvalidTelegramDownloadTimeout,
+		},
+		{
+			name:    "non-positive telegram download timeout",
+			mutate:  func(cfg *Config) { cfg.Telegram.DownloadTimeout = "0" },
+			wantErr: ErrInvalidTelegramDownloadTimeout,
+		},
 	}
 
 	for _, tt := range tests {
@@ -215,10 +256,12 @@ func validConfigForValidation() *Config {
 	return &Config{
 		App: App{LogLevel: "INFO"},
 		Telegram: Telegram{
-			Token:         "12345:TEST_TOKEN",
-			AdminID:       100,
-			ServiceChatID: -200,
-			AllowedChats:  []int64{-1001, 42},
+			Token:           "12345:TEST_TOKEN",
+			AdminID:         100,
+			ServiceChatID:   -200,
+			AllowedChats:    []int64{-1001, 42},
+			APITimeout:      "30s",
+			DownloadTimeout: "2m",
 		},
 		STT: STT{
 			BaseURL: "http://stt.local:5092",
