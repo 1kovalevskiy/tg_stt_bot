@@ -3,6 +3,7 @@ module github.com/1kovalevskiy/tg_stt_bot
 go 1.26.5
 
 require (
+	github.com/go-telegram/bot v1.23.0
 	github.com/ilyakaznacheev/cleanenv v1.5.0
 	github.com/joho/godotenv v1.5.1
 )

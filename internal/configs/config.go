@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -112,10 +113,8 @@ func validateConfig(cfg *Config) error {
 		return ErrZeroTelegramServiceChatID
 	}
 
-	for _, chatID := range cfg.Telegram.AllowedChats {
-		if chatID == 0 {
-			return ErrZeroAllowedChat
-		}
+	if slices.Contains(cfg.Telegram.AllowedChats, 0) {
+		return ErrZeroAllowedChat
 	}
 
 	baseURL, err := url.Parse(strings.TrimSpace(cfg.STT.BaseURL))
