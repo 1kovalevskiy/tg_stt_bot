@@ -1,0 +1,17 @@
+.git
+.github
+.cache
+docs
+bin
+tools
+*.test
+*.out
+coverage.*
+profile.cov
+go.work
+go.work.sum
+README.md
+.DS_Store
+.env
+config.json
+config.example.json

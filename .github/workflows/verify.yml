@@ -1,0 +1,99 @@
+name: verify
+
+on:
+  workflow_call:
+
+env:
+  HOME: ${{ github.workspace }}/.cache/home
+  GOPATH: ${{ github.workspace }}/.cache/gopath
+  GOMODCACHE: ${{ github.workspace }}/.cache/gomod
+  GOCACHE: ${{ github.workspace }}/.cache/go-build
+  GOLANGCI_LINT_CACHE: ${{ github.workspace }}/.cache/golangci-lint
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Restore CI caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            bin
+            .cache/go-build
+            .cache/gomod
+            .cache/gopath
+            .cache/golangci-lint
+          key: ${{ runner.os }}-verify-${{ hashFiles('go.sum', 'Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-verify-
+
+      - name: Run linter
+        run: make lint
+
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Restore CI caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            bin
+            .cache/go-build
+            .cache/gomod
+            .cache/gopath
+            .cache/golangci-lint
+          key: ${{ runner.os }}-verify-${{ hashFiles('go.sum', 'Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-verify-
+
+      - name: Run tests
+        run: make test
+
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Restore CI caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            bin
+            .cache/go-build
+            .cache/gomod
+            .cache/gopath
+            .cache/golangci-lint
+          key: ${{ runner.os }}-verify-${{ hashFiles('go.sum', 'Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-verify-
+
+      - name: Build packages
+        run: go build ./...
