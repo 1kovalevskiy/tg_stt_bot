@@ -67,6 +67,8 @@ func (f *fakeConfig) GetTelegramAllowedChats() []int64 {
 const adminChatID int64 = 555
 
 func TestHandleCommand_StatusHealthySTT(t *testing.T) {
+	t.Parallel()
+
 	telegram := &fakeTelegram{}
 	stt := &fakeSTT{health: `{"status":"ok"}`}
 	controller := NewController(telegram, stt, &fakeConfig{})
@@ -86,6 +88,8 @@ func TestHandleCommand_StatusHealthySTT(t *testing.T) {
 }
 
 func TestHandleCommand_StatusDeadSTT(t *testing.T) {
+	t.Parallel()
+
 	healthErr := errors.New("connection refused")
 	telegram := &fakeTelegram{}
 	stt := &fakeSTT{err: healthErr}
@@ -106,6 +110,8 @@ func TestHandleCommand_StatusDeadSTT(t *testing.T) {
 }
 
 func TestHandleCommand_StatusSendErrorIsJoined(t *testing.T) {
+	t.Parallel()
+
 	healthErr := errors.New("connection refused")
 	sendErr := errors.New("chat not found")
 	telegram := &fakeTelegram{sendErr: sendErr}
@@ -127,6 +133,8 @@ func TestHandleCommand_StatusSendErrorIsJoined(t *testing.T) {
 }
 
 func TestHandleCommand_Chats(t *testing.T) {
+	t.Parallel()
+
 	telegram := &fakeTelegram{}
 	stt := &fakeSTT{health: "unused"}
 	controller := NewController(telegram, stt, &fakeConfig{allowed: []int64{-100123, 42}})
@@ -146,6 +154,8 @@ func TestHandleCommand_Chats(t *testing.T) {
 }
 
 func TestHandleCommand_ChatsEmptyWhitelist(t *testing.T) {
+	t.Parallel()
+
 	telegram := &fakeTelegram{}
 	controller := NewController(telegram, &fakeSTT{}, &fakeConfig{})
 
@@ -159,6 +169,8 @@ func TestHandleCommand_ChatsEmptyWhitelist(t *testing.T) {
 }
 
 func TestHandleCommand_ChatsSendError(t *testing.T) {
+	t.Parallel()
+
 	sendErr := errors.New("chat not found")
 	telegram := &fakeTelegram{sendErr: sendErr}
 	controller := NewController(telegram, &fakeSTT{}, &fakeConfig{allowed: []int64{7}})
@@ -174,6 +186,8 @@ func TestHandleCommand_ChatsSendError(t *testing.T) {
 }
 
 func TestHandleCommand_UnknownCommand(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		command string
@@ -186,6 +200,8 @@ func TestHandleCommand_UnknownCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			telegram := &fakeTelegram{}
 			stt := &fakeSTT{health: "unused"}
 			controller := NewController(telegram, stt, &fakeConfig{allowed: []int64{7}})
@@ -206,6 +222,8 @@ func TestHandleCommand_UnknownCommand(t *testing.T) {
 }
 
 func TestHandleCommand_NormalizesCommand(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		command    string
@@ -220,6 +238,8 @@ func TestHandleCommand_NormalizesCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			telegram := &fakeTelegram{}
 			stt := &fakeSTT{health: `{"status":"ok"}`}
 			controller := NewController(telegram, stt, &fakeConfig{})
@@ -245,6 +265,8 @@ func TestHandleCommand_NormalizesCommand(t *testing.T) {
 }
 
 func TestHandleCommand_NormalizesChatsCommand(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		command   string
@@ -258,6 +280,8 @@ func TestHandleCommand_NormalizesChatsCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			telegram := &fakeTelegram{}
 			controller := NewController(telegram, &fakeSTT{}, &fakeConfig{allowed: []int64{-100500}})
 
@@ -278,6 +302,8 @@ func TestHandleCommand_NormalizesChatsCommand(t *testing.T) {
 }
 
 func TestHandleCommand_LongAnswersAreSplit(t *testing.T) {
+	t.Parallel()
+
 	// A response over the Telegram limit is rejected as a whole, so both
 	// answers have to be chunked.
 	allowed := make([]int64, 0, 500)
@@ -307,6 +333,8 @@ func TestHandleCommand_LongAnswersAreSplit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			telegram := &fakeTelegram{}
 			controller := NewController(telegram, &fakeSTT{health: tt.health}, tt.config)
 
@@ -328,6 +356,8 @@ func TestHandleCommand_LongAnswersAreSplit(t *testing.T) {
 }
 
 func TestHandleCommand_ChatsListsEveryAllowedChat(t *testing.T) {
+	t.Parallel()
+
 	telegram := &fakeTelegram{}
 	allowed := []int64{-100500, 42}
 	controller := NewController(telegram, &fakeSTT{}, &fakeConfig{allowed: allowed})
@@ -349,6 +379,8 @@ func TestHandleCommand_ChatsListsEveryAllowedChat(t *testing.T) {
 }
 
 func TestHandleCommand_StatusProbeHasItsOwnTimeout(t *testing.T) {
+	t.Parallel()
+
 	telegram := &fakeTelegram{}
 	stt := &fakeSTT{health: `{"status":"ok"}`}
 	controller := NewController(telegram, stt, &fakeConfig{})
@@ -373,6 +405,8 @@ func TestHandleCommand_StatusProbeHasItsOwnTimeout(t *testing.T) {
 }
 
 func TestHandleCommand_StatusReplyDoesNotInheritTheProbeDeadline(t *testing.T) {
+	t.Parallel()
+
 	telegram := &fakeTelegram{}
 	stt := &fakeSTT{err: errors.New("connection refused")}
 	controller := NewController(telegram, stt, &fakeConfig{})

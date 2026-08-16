@@ -64,7 +64,7 @@ type (
 // The bot client is created before the providers because the Telegram
 // provider is built on top of it, and its update handlers are registered
 // last, once the controllers they dispatch to exist.
-func InitApp(_ context.Context, opts *Opts) *App {
+func InitApp(opts *Opts) *App {
 	app := &App{}
 
 	steps := []struct {
@@ -128,14 +128,10 @@ func (a *App) closeAll() error {
 
 	for i := len(closers) - 1; i >= 0; i-- {
 		closer := closers[i]
-		if closer.close == nil {
-			continue
-		}
 
+		// A nil hook is dropped by addCloser, so every closer here is callable.
 		if err := closer.close(); err != nil {
 			closeErr = errors.Join(closeErr, fmt.Errorf("%s: %w", closer.name, err))
-
-			continue
 		}
 	}
 

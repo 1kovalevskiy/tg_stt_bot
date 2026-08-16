@@ -87,9 +87,13 @@
   `command_handle.go`, `handlers_register.go`, `record_write.go`, `sink_close.go`).
 - Приватные помощники выносятся в свои файлы, если так читается лучше (`request_do.go`,
   `error_redact.go`, `read_closer_cancel.go`, `audio_transcribe_and_reply.go`, `message_resolve.go`,
-  `update_error_log.go`, `queue_run.go`, `level_parse.go`). Дробить до одного помощника на файл не
-  нужно: связная пара «матчер + хендлер» (`voice_handle.go`) и вся машинерия очереди
-  (`queue_run.go`) живут вместе.
+  `audio_message_handle.go`, `update_error_log.go`, `queue_run.go`, `level_parse.go`). Дробить до
+  одного помощника на файл не нужно: связная пара «матчер + хендлер» (`voice_handle.go`) и вся
+  машинерия очереди (`queue_run.go`) живут вместе.
+- Общий код двух видов входящего аудио (проверка допуска, маппинг в `models.IncomingAudio`,
+  логирование ошибки контроллера) лежит в `audio_message_handle.go`; в `voice_handle.go` и
+  `video_note_handle.go` остаются только тонкие пары «матчер + хендлер» и разбор своего поля
+  апдейта. Третий вид аудио добавляется одним файлом, а не правкой всех.
 
 ### 2.3.1 Имена методов и файлов: `действиеОбъект` и `объект_действие.go`
 
@@ -100,8 +104,10 @@
   существительное: `DownloadFile`, `SendMessage`, `SendReply`, `HandleVoice`, `HandleVideoNote`,
   `HandleCommand`, `TranscribeAudio`, `CheckHealth`, `sendStatus`, `sendChats`, `sendText`,
   `checkHealth`, `transcribeAudio`, `sendReply`, `sendFailureReply`, `wrapRedactedError`,
-  `buildStatusError`, `RegisterHandlers`, `matchVoice`, `resolveAllowedMessage`, `logUpdateError`,
-  `runQueue`, `deliverRecord`, `sendRecord`, `rotateWindow`, `parseLogLevel`. Голого
+  `buildStatusError`, `RegisterHandlers`, `matchVoice`, `matchAudioMessage`, `handleAudioMessage`,
+  `extractVoice`, `resolveAllowedMessage`, `resolveAdminMessage`, `logUpdateError`,
+  `runQueue`, `deliverRecord`, `sendRecord`, `rotateWindow`, `reportSuppressedRecords`,
+  `parseLogLevel`. Голого
   существительного (`Health`, `status`, `chats`, `allowedMessage`) и голого глагола без
   объекта (`send`, `reply`, `run`) быть не должно.
 - **Файлы** называются наоборот — `объект_действие.go`, зеркально методу, который в них лежит:
@@ -114,8 +120,9 @@
   сохраняют: это файлы слоя, а не файлы метода. Конструктор публичного типа лежит рядом с ним, а
   публичные конструкторы-обёртки — в файле по объекту, который они собирают (`handler_base.go`,
   `handler_service_chat.go`, `bot_client.go`).
-- Исключение — методы интерфейсов stdlib: `Read`/`Close` у `cancelReadCloser` и `Write`/`Close` у
-  `ServiceChatSink` реализуют `io.ReadCloser`/`io.WriteCloser` и переименованию не подлежат.
+- Исключение — методы интерфейсов stdlib: `Read`/`Close` у `cancelReadCloser`, `Write`/`Close` у
+  `ServiceChatSink` и `Enabled`/`Handle`/`WithAttrs`/`WithGroup` у `fanOutHandler` реализуют
+  `io.ReadCloser`, `io.WriteCloser` и `slog.Handler` и переименованию не подлежат.
 - Вайринг (`cmd/app/app/`) под это правило не попадает: там файлы называются по этапу инициализации
   (`bot.go`, `logs.go`, `providers.go`, `controllers.go`).
 
@@ -138,7 +145,9 @@
 - Только чистая логика: без HTTP, без Telegram, без конфигов и логгера. Из зависимостей — стдлиб
   (`strings`, `time`, `slices`, …), и ничего больше.
 - Каждая структура со своими методами — в отдельном файле, поддиректории по необходимости.
-- Общая логика двух контроллеров (разбивка текста, проверка допуска чата) живёт здесь, а не дублируется.
+- Общая логика двух потребителей живёт здесь, а не дублируется: разбивка текста и проверка допуска
+  чата (два контроллера), разбор имени команды `ParseCommandName` (транспорт логирует имя, admin-
+  контроллер по нему маршрутизирует — расходиться они не должны).
 
 ### 2.6 Все константы — только в internal/models
 
@@ -149,7 +158,8 @@
 - Все константы лежат в одном файле `internal/models/consts.go`, разбитые на `const (...)`-блоки
   по доменам, у каждого блока — короткий комментарий: рантайм приложения (`DefaultConfigPath`,
   `BotWorkers`), протокол Bot API (`Telegram*`), API parakeet (`STT*`), имена файлов аудио
-  (`VoiceFilename`, `VideoNoteFilename`), команды бота (`Command*`), пользовательские тексты
+  (`VoiceFilename`, `VideoNoteFilename`), редактирование секретов (`RedactedToken`), команды бота
+  (`Command*`), пользовательские тексты
   (`Msg*`, `StatusPrefix`, `ChatsHeader`), таймауты контроллеров (`FailureReplyTimeout`,
   `HealthProbeTimeout`), доставка логов в сервисный чат (`ServiceChat*`, `MsgSuppressedFormat`).
 - Файла на группу констант не заводим: новая константа добавляется в подходящий блок `consts.go`,
@@ -245,6 +255,14 @@ log sink — после провайдеров, потому что достав
 
 - **Каждое изменение кода сопровождается тестами** — юнит-тесты на новые и изменённые функции, и на успех,
   и на ошибочные сценарии. e2e-тестов в проекте нет.
+- Тест лежит в `_test.go`-двойнике того файла, который проверяет (`voice_handle_test.go`,
+  `file_download_test.go`, `handler_base_test.go`); в `*_test.go` файла слоя (`dispatcher_test.go`,
+  `provider_test.go`, `controller_test.go`) остаются только общие фейки, фикстуры и хелперы.
+- Тесты параллельные: `t.Parallel()` в каждом тесте и подтесте. Исключение — тесты, трогающие
+  глобальное состояние (`t.Setenv`, `slog.SetDefault`) и тесты с wall-clock бюджетом (переполнение
+  очереди, таймаут дренажа); у каждого такого — строка комментария, почему он последовательный.
+- Литералы-фикстуры получают имена (`testChatID`, `testMessageID`, `testFileID`, `testToken`,
+  `serviceChatID`) и лежат в `const`-блоке рядом с фейками, а не повторяются по телу тестов.
 - Контроллеры тестируются с ручными фейками их consumer-side интерфейсов, без библиотек моков.
 - Провайдеры — через `httptest` (stt) и фейк интерфейса бота (telegram); обязателен тест, что токен
   не утекает в текст ошибки.

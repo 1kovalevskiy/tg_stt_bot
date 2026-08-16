@@ -55,7 +55,8 @@ func TestNewBotClient_ErrorDoesNotLeakTheToken(t *testing.T) {
 }
 
 // TestIgnoreUpdate_LogsNothing pins the default handler: the library's own
-// default prints every unmatched update and leaks message content.
+// default prints every unmatched update and leaks message content. It captures
+// the global logger, so it cannot run in parallel.
 func TestIgnoreUpdate_LogsNothing(t *testing.T) {
 	logOut := captureDefaultLogger(t)
 

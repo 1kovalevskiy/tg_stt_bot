@@ -2,7 +2,6 @@ package logger
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"log"
 	"log/slog"
@@ -13,6 +12,8 @@ import (
 )
 
 func TestServiceChatHandler_ErrorGoesToServiceChat(t *testing.T) {
+	t.Parallel()
+
 	sender := &fakeSender{}
 	logger, stdout, errOut, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
@@ -54,6 +55,8 @@ func TestServiceChatHandler_ErrorGoesToServiceChat(t *testing.T) {
 }
 
 func TestServiceChatHandler_NonErrorStaysInStdout(t *testing.T) {
+	t.Parallel()
+
 	sender := &fakeSender{}
 	logger, stdout, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
@@ -80,6 +83,8 @@ func TestServiceChatHandler_NonErrorStaysInStdout(t *testing.T) {
 }
 
 func TestServiceChatHandler_ErrorPassesHigherInnerLevel(t *testing.T) {
+	t.Parallel()
+
 	sender := &fakeSender{}
 	stdout := &bytes.Buffer{}
 	// The inner handler drops everything: ERROR must still reach the sink.
@@ -103,6 +108,8 @@ func TestServiceChatHandler_ErrorPassesHigherInnerLevel(t *testing.T) {
 }
 
 func TestServiceChatHandler_WithAttrsAndGroupKeepAttributes(t *testing.T) {
+	t.Parallel()
+
 	sender := &fakeSender{}
 	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
@@ -133,6 +140,8 @@ func TestServiceChatHandler_WithAttrsAndGroupKeepAttributes(t *testing.T) {
 }
 
 func TestServiceChatHandler_GroupAttrIsFlattened(t *testing.T) {
+	t.Parallel()
+
 	sender := &fakeSender{}
 	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
@@ -153,6 +162,8 @@ func TestServiceChatHandler_GroupAttrIsFlattened(t *testing.T) {
 }
 
 func TestServiceChatHandler_LongRecordTruncatedToOneMessage(t *testing.T) {
+	t.Parallel()
+
 	sender := &fakeSender{}
 	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
@@ -169,34 +180,5 @@ func TestServiceChatHandler_LongRecordTruncatedToOneMessage(t *testing.T) {
 
 	if chunks := models.SplitText(sent[0], models.TelegramMessageLimit); len(chunks) != 1 {
 		t.Errorf("service chat message is %d chunks long, want it to fit into one message", len(chunks))
-	}
-}
-
-func TestNewBaseHandler_TakesTheLevelFromTheConfig(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		level       string
-		record      slog.Level
-		wantEnabled bool
-	}{
-		{name: "debug config takes debug", level: "DEBUG", record: slog.LevelDebug, wantEnabled: true},
-		{name: "info config drops debug", level: "INFO", record: slog.LevelDebug, wantEnabled: false},
-		{name: "info config takes error", level: "INFO", record: slog.LevelError, wantEnabled: true},
-		{name: "error config drops warn", level: "ERROR", record: slog.LevelWarn, wantEnabled: false},
-		{name: "unknown config behaves as info", level: "verbose", record: slog.LevelInfo, wantEnabled: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			handler := NewBaseHandler(fakeConfig{level: tt.level})
-
-			if got := handler.Enabled(context.Background(), tt.record); got != tt.wantEnabled {
-				t.Errorf("Enabled(%v) = %v for level %q, want %v", tt.record, got, tt.level, tt.wantEnabled)
-			}
-		})
 	}
 }

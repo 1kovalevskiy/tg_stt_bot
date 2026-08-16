@@ -26,7 +26,7 @@ func (s *ServiceChatSink) runQueue() {
 		s.deliverRecord(text)
 	}
 
-	s.reportSuppressed()
+	s.reportSuppressedRecords()
 }
 
 // rotateWindow starts a new rate window once the current one has expired,
@@ -36,16 +36,16 @@ func (s *ServiceChatSink) rotateWindow(now time.Time) {
 		return
 	}
 
-	s.reportSuppressed()
+	s.reportSuppressedRecords()
 
 	s.windowStart = now
 	s.windowSent = 0
 }
 
-// reportSuppressed sends a summary of the records the rate limit dropped. The
-// summary itself bypasses the limit: it is at most one message per window and
-// is the only trace those records leave in the chat.
-func (s *ServiceChatSink) reportSuppressed() {
+// reportSuppressedRecords sends a summary of the records the rate limit
+// dropped. The summary itself bypasses the limit: it is at most one message per
+// window and is the only trace those records leave in the chat.
+func (s *ServiceChatSink) reportSuppressedRecords() {
 	if s.suppressed == 0 {
 		return
 	}

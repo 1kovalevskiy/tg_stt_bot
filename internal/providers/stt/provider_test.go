@@ -41,6 +41,8 @@ func newTestProvider(baseURL, language string, timeout time.Duration, client htt
 // keeps the config instead of snapshotting its values: a setting changed after
 // the provider was built must show up in the next request it sends.
 func TestNewProvider_ReadsConfigOnEveryCall(t *testing.T) {
+	t.Parallel()
+
 	recorded := &recordedRequest{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recorded.record(t, r)

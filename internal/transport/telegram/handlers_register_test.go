@@ -30,6 +30,8 @@ func (f *fakeRegistrar) RegisterHandlerMatchFunc(
 // itself: a matcher registered with the wrong handler would silently drop
 // every update it matches, and no dispatcher-level test would notice.
 func TestRegisterHandlers_MatchersArePairedWithTheirHandlers(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		update *tgmodels.Update
@@ -60,6 +62,8 @@ func TestRegisterHandlers_MatchersArePairedWithTheirHandlers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			d, chat, admin := newTestDispatcher()
 			registrar := &fakeRegistrar{}
 

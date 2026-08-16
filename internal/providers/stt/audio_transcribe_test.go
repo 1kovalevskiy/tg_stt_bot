@@ -82,6 +82,8 @@ func (r *recordedRequest) record(t *testing.T, req *http.Request) {
 }
 
 func TestTranscribeAudio_Success_NoLanguage(t *testing.T) {
+	t.Parallel()
+
 	recorded := &recordedRequest{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recorded.record(t, r)
@@ -127,6 +129,8 @@ func TestTranscribeAudio_Success_NoLanguage(t *testing.T) {
 }
 
 func TestTranscribeAudio_Success_WithLanguage(t *testing.T) {
+	t.Parallel()
+
 	recorded := &recordedRequest{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recorded.record(t, r)
@@ -160,6 +164,8 @@ func TestTranscribeAudio_Success_WithLanguage(t *testing.T) {
 }
 
 func TestTranscribeAudio_HTTPErrorWithOpenAIEnvelope(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 
@@ -190,6 +196,8 @@ func TestTranscribeAudio_HTTPErrorWithOpenAIEnvelope(t *testing.T) {
 }
 
 func TestTranscribeAudio_HTTPErrorWithoutEnvelope(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 
@@ -212,6 +220,8 @@ func TestTranscribeAudio_HTTPErrorWithoutEnvelope(t *testing.T) {
 }
 
 func TestTranscribeAudio_ContextDeadline(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
@@ -242,6 +252,8 @@ func TestTranscribeAudio_ContextDeadline(t *testing.T) {
 }
 
 func TestTranscribeAudio_ConfiguredTimeout(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
@@ -266,6 +278,8 @@ func TestTranscribeAudio_ConfiguredTimeout(t *testing.T) {
 }
 
 func TestTranscribeAudio_ContextCanceled(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -293,6 +307,8 @@ func TestTranscribeAudio_ContextCanceled(t *testing.T) {
 }
 
 func TestTranscribeAudio_InvalidJSONResponse(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if _, err := w.Write([]byte("not-a-json")); err != nil {
 			t.Errorf("write response: %v", err)
@@ -309,6 +325,8 @@ func TestTranscribeAudio_InvalidJSONResponse(t *testing.T) {
 }
 
 func TestTranscribeAudio_ServiceUnavailable(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	server.Close() // shut down before the call: connection refused
 
@@ -338,6 +356,8 @@ func (r *failingReader) Read(p []byte) (int, error) {
 }
 
 func TestTranscribeAudio_AudioReadFailureIsNotAnSTTFailure(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("request sent, want the failure detected before any request")
 	}))
@@ -363,6 +383,8 @@ func TestTranscribeAudio_AudioReadFailureIsNotAnSTTFailure(t *testing.T) {
 }
 
 func TestTranscribeAudio_AudioOverTheSizeLimitIsRejected(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("request sent, want oversized audio rejected before any request")
 	}))
@@ -381,6 +403,8 @@ func TestTranscribeAudio_AudioOverTheSizeLimitIsRejected(t *testing.T) {
 }
 
 func TestTranscribeAudio_AudioExactlyAtTheSizeLimitIsSent(t *testing.T) {
+	t.Parallel()
+
 	recorded := &recordedRequest{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recorded.record(t, r)
@@ -410,6 +434,8 @@ func TestTranscribeAudio_AudioExactlyAtTheSizeLimitIsSent(t *testing.T) {
 }
 
 func TestTranscribeAudio_RedirectStatusIsNotATranscript(t *testing.T) {
+	t.Parallel()
+
 	// A 3xx body is not a transcript: without the upper 2xx bound it would be
 	// parsed and returned as recognized text.
 	for _, status := range []int{http.StatusFound, http.StatusNotModified} {
@@ -434,6 +460,8 @@ func TestTranscribeAudio_RedirectStatusIsNotATranscript(t *testing.T) {
 }
 
 func TestTranscribeAudio_OversizedResponseIsRejected(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// A misrouted base_url answering with a huge page must not come back
 		// as "invalid response": the size is the actual problem.
@@ -456,6 +484,8 @@ func TestTranscribeAudio_OversizedResponseIsRejected(t *testing.T) {
 }
 
 func TestTranscribeAudio_ResponseAtTheReadLimitIsAccepted(t *testing.T) {
+	t.Parallel()
+
 	text := strings.Repeat("a", models.STTMaxResponseSize-len(`{"text":""}`))
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -478,6 +508,8 @@ func TestTranscribeAudio_ResponseAtTheReadLimitIsAccepted(t *testing.T) {
 }
 
 func TestTranscribeAudio_ErrorBodySnippetIsTruncated(t *testing.T) {
+	t.Parallel()
+
 	body := strings.Repeat("b", models.STTMaxErrorSnippet*4)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

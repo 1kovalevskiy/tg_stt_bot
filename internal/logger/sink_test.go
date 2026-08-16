@@ -92,6 +92,8 @@ func newTestLogger(
 }
 
 func TestNewServiceChatSink_DeliversToTheConfiguredChat(t *testing.T) {
+	t.Parallel()
+
 	sender := &fakeSender{}
 	sink := NewServiceChatSink(sender, testConfig())
 
@@ -112,6 +114,9 @@ func TestNewServiceChatSink_DeliversToTheConfiguredChat(t *testing.T) {
 	}
 }
 
+// TestServiceChatSink_OverflowDoesNotBlock asserts a wall-clock budget on a
+// blocked delivery goroutine, so it stays sequential: under a parallel run the
+// contention, and not the sink, would decide whether it passes.
 func TestServiceChatSink_OverflowDoesNotBlock(t *testing.T) {
 	release := make(chan struct{})
 	sender := &fakeSender{block: release}
@@ -154,6 +159,8 @@ func TestServiceChatSink_OverflowDoesNotBlock(t *testing.T) {
 }
 
 func TestServiceChatSink_SendFailureIsReportedWithoutRecursion(t *testing.T) {
+	t.Parallel()
+
 	sendErr := errors.New("chat not found")
 	sender := &fakeSender{err: sendErr}
 	logger, _, errOut, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
@@ -174,6 +181,8 @@ func TestServiceChatSink_SendFailureIsReportedWithoutRecursion(t *testing.T) {
 }
 
 func TestServiceChatSink_CloseDrainsQueue(t *testing.T) {
+	t.Parallel()
+
 	sender := &fakeSender{}
 	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
@@ -193,6 +202,8 @@ func TestServiceChatSink_CloseDrainsQueue(t *testing.T) {
 }
 
 func TestServiceChatSink_CloseIsIdempotentAndDropsLaterRecords(t *testing.T) {
+	t.Parallel()
+
 	sender := &fakeSender{}
 	logger, _, errOut, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
@@ -216,6 +227,8 @@ func TestServiceChatSink_CloseIsIdempotentAndDropsLaterRecords(t *testing.T) {
 }
 
 func TestServiceChatSink_QueueSizeIsClampedToAtLeastOne(t *testing.T) {
+	t.Parallel()
+
 	sink := newServiceChatSink(&fakeSender{}, testConfig(), 0, log.New(io.Discard, "", 0))
 
 	defer func() {
@@ -224,11 +237,14 @@ func TestServiceChatSink_QueueSizeIsClampedToAtLeastOne(t *testing.T) {
 		}
 	}()
 
-	if got := cap(sink.queue); got != 1 {
-		t.Errorf("queue capacity = %d, want 1 for a non-positive queue size", got)
+	if got := cap(sink.queue); got != models.ServiceChatMinQueueSize {
+		t.Errorf("queue capacity = %d, want the floor %d for a non-positive queue size",
+			got, models.ServiceChatMinQueueSize)
 	}
 }
 
+// TestServiceChatSink_CloseReportsDrainTimeout drives a millisecond-scale drain
+// deadline, so it stays sequential for the same reason as the overflow test.
 func TestServiceChatSink_CloseReportsDrainTimeout(t *testing.T) {
 	release := make(chan struct{})
 	defer close(release)
@@ -248,6 +264,8 @@ func TestServiceChatSink_CloseReportsDrainTimeout(t *testing.T) {
 }
 
 func TestServiceChatSink_RateLimitCapsDeliveriesAndReportsTheRest(t *testing.T) {
+	t.Parallel()
+
 	sender := &fakeSender{}
 	logger, _, _, sink := newTestLogger(t, sender, models.ServiceChatQueueSize)
 
@@ -275,6 +293,8 @@ func TestServiceChatSink_RateLimitCapsDeliveriesAndReportsTheRest(t *testing.T) 
 }
 
 func TestServiceChatSink_WriteTruncatesToOneMessage(t *testing.T) {
+	t.Parallel()
+
 	sender := &fakeSender{}
 	sink := newServiceChatSink(sender, testConfig(), models.ServiceChatQueueSize, log.New(io.Discard, "", 0))
 

@@ -64,8 +64,8 @@ func newServiceChatSink(
 		errLog = log.New(os.Stderr, "service-chat-log: ", log.LstdFlags)
 	}
 
-	if queueSize < 1 {
-		queueSize = 1
+	if queueSize < models.ServiceChatMinQueueSize {
+		queueSize = models.ServiceChatMinQueueSize
 	}
 
 	sink := &ServiceChatSink{

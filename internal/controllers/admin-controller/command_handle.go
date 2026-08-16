@@ -15,7 +15,7 @@ import (
 // An unknown command gets a short hint. Provider failures are reported to the
 // chat as well and returned wrapped, so the wiring can log them.
 func (c *Controller) HandleCommand(ctx context.Context, chatID int64, command string) error {
-	switch normalizeCommand(command) {
+	switch models.ParseCommandName(command) {
 	case models.CommandStatus:
 		return c.sendStatus(ctx, chatID)
 	case models.CommandChats:
@@ -77,18 +77,4 @@ func (c *Controller) sendText(ctx context.Context, chatID int64, text string) er
 	}
 
 	return nil
-}
-
-// normalizeCommand extracts the command name from the message text: arguments
-// are dropped, the "@botname" suffix Telegram adds in groups is stripped and
-// the name is lowercased.
-func normalizeCommand(command string) string {
-	fields := strings.Fields(command)
-	if len(fields) == 0 {
-		return ""
-	}
-
-	name, _, _ := strings.Cut(fields[0], "@")
-
-	return strings.ToLower(name)
 }

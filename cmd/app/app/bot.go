@@ -1,8 +1,6 @@
 package app
 
-import (
-	telegramTransport "github.com/1kovalevskiy/tg_stt_bot/internal/transport/telegram"
-)
+import telegramTransport "github.com/1kovalevskiy/tg_stt_bot/internal/transport/telegram"
 
 // initBotClient creates the long polling client. It runs before the providers
 // because the Telegram provider is built on top of this client.

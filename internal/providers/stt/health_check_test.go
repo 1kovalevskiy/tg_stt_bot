@@ -14,6 +14,8 @@ import (
 )
 
 func TestCheckHealth_Success(t *testing.T) {
+	t.Parallel()
+
 	// The handler runs on the server's goroutine: what it records is guarded
 	// by a mutex on both sides.
 	var (
@@ -57,6 +59,8 @@ func TestCheckHealth_Success(t *testing.T) {
 }
 
 func TestCheckHealth_UnexpectedStatus(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 
@@ -83,6 +87,8 @@ func TestCheckHealth_UnexpectedStatus(t *testing.T) {
 }
 
 func TestCheckHealth_ConfiguredTimeout(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
@@ -107,6 +113,8 @@ func TestCheckHealth_ConfiguredTimeout(t *testing.T) {
 }
 
 func TestCheckHealth_ServiceUnavailable(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	server.Close() // shut down before the call: connection refused
 
@@ -119,6 +127,8 @@ func TestCheckHealth_ServiceUnavailable(t *testing.T) {
 }
 
 func TestCheckHealth_ResponseBodyReadFailure(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// A body announced but never fully delivered: the connection drops
 		// while the response is being read.
@@ -146,6 +156,8 @@ func TestCheckHealth_ResponseBodyReadFailure(t *testing.T) {
 }
 
 func TestCheckHealth_ContextCanceled(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))

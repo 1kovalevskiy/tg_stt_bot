@@ -55,6 +55,12 @@ const (
 	VideoNoteFilename = "video_note.mp4"
 )
 
+// Secret redaction in text a human gets to see.
+const (
+	// RedactedToken is what replaces the bot token in text shown to a human.
+	RedactedToken = "[REDACTED]"
+)
+
 // Bot commands available in the admin's private chat.
 const (
 	// CommandPrefix marks a message as a bot command.
@@ -104,6 +110,9 @@ const (
 	// ServiceChatQueueSize is how many ERROR records may wait for delivery
 	// before new ones are dropped instead of blocking the logging caller.
 	ServiceChatQueueSize = 64
+	// ServiceChatMinQueueSize is the floor the sink clamps its queue to: an
+	// unbuffered queue would make every logging call wait for a Telegram send.
+	ServiceChatMinQueueSize = 1
 	// ServiceChatSendTimeout bounds a single delivery attempt.
 	ServiceChatSendTimeout = 15 * time.Second
 	// ServiceChatDrainTimeout bounds the queue drain on shutdown. It has to

@@ -12,9 +12,7 @@ func main() {
 	configPath := flag.String("config", models.DefaultConfigPath, "path to the config file")
 	flag.Parse()
 
-	ctx := context.Background()
+	application := app.InitApp(&app.Opts{ConfigPath: *configPath})
 
-	application := app.InitApp(ctx, &app.Opts{ConfigPath: *configPath})
-
-	application.RunApp(ctx)
+	application.RunApp(context.Background())
 }

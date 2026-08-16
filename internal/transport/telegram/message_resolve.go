@@ -23,3 +23,18 @@ func (d *Dispatcher) resolveAllowedMessage(update *tgmodels.Update) *tgmodels.Me
 
 	return update.Message
 }
+
+// resolveAdminMessage returns the update's message if it comes from the admin's
+// private chat, and nil otherwise. Every matcher goes through one of the two
+// resolvers, so the nil guard and the config reading live in a single place.
+func (d *Dispatcher) resolveAdminMessage(update *tgmodels.Update) *tgmodels.Message {
+	if update == nil || update.Message == nil {
+		return nil
+	}
+
+	if update.Message.Chat.ID != d.config.GetTelegramAdminID() {
+		return nil
+	}
+
+	return update.Message
+}

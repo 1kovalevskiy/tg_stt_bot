@@ -27,7 +27,8 @@ const testConfigJSON = `{
 
 // clearConfigEnv makes the environment empty for the duration of the test:
 // the config reads the real process environment, and an ambient
-// TELEGRAM_ADMIN_ID would silently replace what the test file says.
+// TELEGRAM_ADMIN_ID would silently replace what the test file says. It uses
+// t.Setenv, so every test that loads a config file stays sequential.
 func clearConfigEnv(t *testing.T) {
 	t.Helper()
 
@@ -119,6 +120,8 @@ func TestInitConfig_ReadsTheConfigPath(t *testing.T) {
 }
 
 func TestInitConfig_MissingFile(t *testing.T) {
+	t.Parallel()
+
 	app := &App{}
 
 	err := app.initConfig(&Opts{ConfigPath: filepath.Join(t.TempDir(), "missing.json")})
@@ -128,6 +131,8 @@ func TestInitConfig_MissingFile(t *testing.T) {
 }
 
 func TestInitConfig_NilOptsFallsBackToTheDefaultPath(t *testing.T) {
+	t.Parallel()
+
 	app := &App{}
 
 	// The default path does not exist in the test's working directory, which
@@ -297,6 +302,8 @@ func TestInitSteps_WireTheApplication(t *testing.T) {
 }
 
 func TestCloseAll_RunsClosersInReverseOrder(t *testing.T) {
+	t.Parallel()
+
 	app := &App{}
 
 	var order []string
@@ -338,6 +345,8 @@ func TestCloseAll_RunsClosersInReverseOrder(t *testing.T) {
 }
 
 func TestCloseAll_JoinsFailures(t *testing.T) {
+	t.Parallel()
+
 	app := &App{}
 
 	firstErr := errors.New("sink drain timed out")

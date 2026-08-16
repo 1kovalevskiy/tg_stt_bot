@@ -28,7 +28,7 @@ func TestCommandsCarryThePrefix(t *testing.T) {
 			}
 
 			if tt.command != strings.ToLower(tt.command) {
-				// normalizeCommand lowercases the incoming command before the
+				// ParseCommandName lowercases the incoming command before the
 				// comparison, so an uppercase constant would never match.
 				t.Errorf("command %q is not lowercase", tt.command)
 			}

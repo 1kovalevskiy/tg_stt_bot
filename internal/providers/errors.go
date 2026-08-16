@@ -6,7 +6,11 @@
 // for both services and must stay distinguishable.
 package providers
 
-import "errors"
+import (
+	"context"
+	"errors"
+	"fmt"
+)
 
 var (
 	// parakeet STT service.
@@ -50,4 +54,14 @@ var (
 	ErrTelegramUnexpectedStatus = errors.New("telegram file download returned unexpected status")
 	// ErrTelegramSendMessage reports a failed sendMessage call.
 	ErrTelegramSendMessage = errors.New("failed to send telegram message")
+	// ErrTelegramRequestCanceled reports a Bot API call or a file download
+	// canceled by its caller, which is what a shutdown looks like and is not a
+	// service failure. It wraps context.Canceled itself: the telegram provider
+	// flattens the underlying error into redacted text (the bot token lives in
+	// the request URL), so the cancellation reaches errors.Is only through this
+	// sentinel.
+	ErrTelegramRequestCanceled = fmt.Errorf("telegram request canceled: %w", context.Canceled)
+	// ErrTelegramRequestTimeout reports a Bot API call or a file download that
+	// ran out of time. It wraps context.DeadlineExceeded for the same reason.
+	ErrTelegramRequestTimeout = fmt.Errorf("telegram request timed out: %w", context.DeadlineExceeded)
 )
